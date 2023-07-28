@@ -97,6 +97,29 @@ class FrappeClient(object):
                 raise requests.HTTPError(f'{post_response.reason}: {post_response.text}', response=post_response)
         return post_response.json()['data']
 
+    def update_document(
+            self,
+            doctype: str,
+            name: str,
+            data: Dict):
+        """Updates document of the given doctype.
+        See https://frappeframework.com/docs/v14/user/en/api/rest#listing-documents
+        
+        Args:
+            doctype (str): Type of the document to update.
+            name (str): name of the document to update.
+            data (Dict): Document object.
+        """
+        update_response = requests.put(
+            f'{self.base_url}/resource/{doctype}/{name}',
+            json=data,
+            headers=self.headers)
+        if not update_response.ok:
+            if 400 <= update_response.status_code < 600:
+               raise requests.HTTPError(f'{update_response.reason}: {update_response.text}', response=update_response)
+        return update_response.json()['data']
+        #return update_response
+
     def ping(self) -> bool:
         """Sends a basic request to the Frappe API to see if it succeeds.
         
