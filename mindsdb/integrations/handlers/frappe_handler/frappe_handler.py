@@ -56,6 +56,7 @@ class FrappeHandler(APIHandler):
             'check_sales_invoice': 'useful to check the sales invoice is exist. Input is name',
             'check_customer':  'useful to search for existing customers. Input is customer',
             'check_item_code':  'have to be used to check the item code. Input is item_code',
+            'search_item_by_keyword' : 'have to be used by assistant to find a match or a close match item based on the keyword provided by the user',
         }
         return {
             'tools': tools,
@@ -77,6 +78,8 @@ class FrappeHandler(APIHandler):
             }
         """
         invoice = json.loads(data)
+        if not invoice.get('company'):
+            invoice['company'] = self.get_permitted_company()[0]['name']
         date = dt.datetime.strptime(invoice['due_date'], '%Y-%m-%d')
         if date < dt.datetime.today():
             return 'Error: due_date have to be in the future'
@@ -85,6 +88,11 @@ class FrappeHandler(APIHandler):
             # rename column
             item['qty'] = item['quantity']
             del item['quantity']
+            if not item.get('company'):
+                item['company'] = invoice['company']
+            item_default = self.get_item_default(item)
+            item['income_account'] = item_default['income_account']
+            item['cost_center'] = item_default['selling_cost_center']
 
         try:
             self.connect()
@@ -191,7 +199,55 @@ class FrappeHandler(APIHandler):
         if len(result) == 1:
             return True
         return "Item doesn't exist: please use different name"
+   
+    def search_item_by_keyword(self, keyword):
+        self.connect()
+        result = self.client.get_documents('Item', filters=[['name', 'like', f'%{keyword}%']], fields=['name', 'item_code', 'description', 'company'])
+        if len(result):
+            for item in result:
+                item['rate'] = self.get_item_price(item['item_code'])
+            return result
+        return "No item match with the provided key, please use a different keyword"
 
+    def get_item_price(self, item_code):
+        result = self.client.get_documents('Item Price', filters=[['item_code', '=', item_code],['selling', '=', 1]], fields=['name', 'valid_from', 'valid_upto', 'price_list_rate', 'currency', 'price_list'])
+        if result:
+            return result
+    
+    def get_item_default(self, item):
+        # Get company defaults
+        company_defaults = self.get_company_defaults(item['company'], ["cost_center", "default_income_account"])
+        # Create the output dictionary with default values from the company
+        output = {
+            'buying_cost_center': company_defaults.get('cost_center', ''),
+            'selling_cost_center': company_defaults.get('cost_center', ''),
+            'income_account': company_defaults.get('default_income_account', '')
+        }
+        # Get item defaults from the client
+        result = self.client.get_documents('Item Default', filters=[['parenttype', '=', 'Item'], ['parent', '=', item['item_code']], ['company', '=', item['company']]], parent='Item')
+        # Process the result if it exists
+        if result:
+            # Iterate through the results to find the first match
+            for item_default in result:
+                # Update output dictionary if a value is present in the result
+                if item_default.get('selling_cost_center') and item_default['selling_cost_center'] != output['selling_cost_center']:
+                    output['selling_cost_center'] = item_default['selling_cost_center']
+                if item_default.get('buying_cost_center') and item_default['buying_cost_center'] != output['buying_cost_center']:
+                    output['buying_cost_center'] = item_default['buying_cost_center']
+                if item_default.get('income_account') and item_default['income_account'] != output['income_account']:
+                    output['income_account'] = item_default['income_account']
+                break  # Break out of the loop after updating the output once
+
+        return output
+
+    def get_company_defaults(self, company, fields=["*"]):
+        result = self.client.get_documents('Company', filters=[['name', '=', company]], fields=fields)
+        return result[0]
+    
+    def get_permitted_company(self):
+        result = self.client.get_documents('Company', fields=['name'])
+        return result
+    
     def check_company_exists(self, name):
         self.connect()
         result = self.client.get_documents('Company', filters=[['name', '=', name]])
