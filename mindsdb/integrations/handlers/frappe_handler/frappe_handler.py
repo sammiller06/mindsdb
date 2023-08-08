@@ -48,7 +48,6 @@ class FrappeHandler(APIHandler):
 
     def back_office_config(self):
         tools = {
-            'get_sales_invoice_detail': 'have to be used by asssitant to get the sales invoice details',
             'get_permitted_company': 'have to be used by assistant to get all permitted companies for the user. There is no input to pass',
             'register_sales_invoice': 'have to be used by assistant to register a sales invoice. Input is JSON object serialized as a string. Due date have to be passed in format: "yyyy-mm-dd".',
             'register_new_customer': 'have to be used by assistant to register a new customer. Input is JSON object serliazed as a string',
@@ -58,6 +57,7 @@ class FrappeHandler(APIHandler):
             'register_payment_entry': 'have to be used by assistant to create a payment entry. Input is JSON object serialized as a string',
             'check_company_exists': 'useful to check the company is exist using fuzzy search. Input is company',
             'check_sales_invoice': 'useful to check the sales invoice is exist. Input is name',
+            'get_sales_invoice_detail': 'have to be used by asssitant to get the sales invoice details. Input is invoice',
             'check_customer':  'useful to search for existing customers. Input is customer',
             'check_item_code':  'have to be used to check the item code. Input is item_code',
             'search_item_by_keyword' : 'have to be used by assistant to find a match or a close match item based on the keyword provided by the user',
@@ -236,11 +236,16 @@ class FrappeHandler(APIHandler):
         except Exception as e:
             return f"Error: {e}"
     
-    def get_sales_invoice_detail(self, name):
-        sales_invoice = self.client.get_documents('Sales Invoice', filters=[['name', '=', name]])
-        sales_invoice_items = self.client.get_documents('Sales Invoice Item', filters=[['parenttype', '=', 'Sales Invoice'], ['parent', '=', name]], parent='Sales Invoice')
-        sales_invoice['items'] = sales_invoice_items
-        return sales_invoice
+    def get_sales_invoice_detail(self, invoice):
+        self.connect()
+        sales_invoices = self.client.get_documents('Sales Invoice', filters=[['name', '=', invoice]], limit=1)
+        for invoice in sales_invoices:
+            invoice['items'] = self.client.get_documents(
+                'Sales Invoice Item',
+                filters=[['parenttype', '=', 'Sales Invoice'], ['parent', '=', invoice['name']]],
+                parent='Sales Invoice'
+            )
+        return sales_invoices
 
     def register_payment_entry(self, data):
         """
@@ -306,12 +311,26 @@ class FrappeHandler(APIHandler):
    
     def search_item_by_keyword(self, keyword):
         self.connect()
-        result = self.client.get_documents('Item', filters=[['name', 'like', f'%{keyword}%']], fields=['name', 'item_code', 'description', 'company'])
-        if len(result):
+        fields = ['name', 'item_code', 'description', 'company']
+        result = []
+
+        filters = [
+            ['item_code', 'like', f'%{keyword}%'],
+            ['name', 'like', f'%{keyword}%'],
+            ['item_name', 'like', f'%{keyword}%']
+        ]
+
+        for filter_group in filters:
+            result = self.client.get_documents('Item', filters=[filter_group], fields=fields)
+            if result:
+                break
+
+        if result:
             for item in result:
                 item['rate'] = self.get_item_price(item['item_code'])
             return result
-        return "No item match with the provided key, please use a different keyword"
+        else:
+            return "No items match the provided keyword. Please try a different keyword."
 
     def get_item_price(self, item_code):
         result = self.client.get_documents('Item Price', filters=[['item_code', '=', item_code],['selling', '=', 1]], fields=['name', 'valid_from', 'valid_upto', 'price_list_rate', 'currency', 'price_list'])
@@ -319,6 +338,7 @@ class FrappeHandler(APIHandler):
             return result
     
     def get_item_default(self, item):
+        self.connect()
         # Get company defaults
         company_defaults = self.get_company_defaults(item['company'], ["cost_center", "default_income_account"])
         # Create the output dictionary with default values from the company
@@ -349,6 +369,7 @@ class FrappeHandler(APIHandler):
         return result[0]
     
     def get_permitted_company(self):
+        self.connect()
         result = self.client.get_documents('Company', fields=['name'])
         return result
     
