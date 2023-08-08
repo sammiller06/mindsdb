@@ -102,7 +102,11 @@ class FrappeClient(object):
         if not post_response.ok:
             if 400 <= post_response.status_code < 600:
                 raise requests.HTTPError(f'{post_response.reason}: {post_response.text}', response=post_response)
-        return post_response.json()['data']
+
+        # Get latest invoice number
+        response_data = post_response.json()['data']
+        invoice_number = response_data.get('name')
+        return response_data, invoice_number
 
     def update_document(
             self,
