@@ -48,6 +48,8 @@ class FrappeHandler(APIHandler):
 
     def back_office_config(self):
         tools = {
+            'get_sales_invoice_detail': 'have to be used by asssitant to get the sales invoice details',
+            'get_permitted_company': 'have to be used by assistant to get all permitted companies for the user. There is no input to pass',
             'register_sales_invoice': 'have to be used by assistant to register a sales invoice. Input is JSON object serialized as a string. Due date have to be passed in format: "yyyy-mm-dd".',
             'register_new_customer': 'have to be used by assistant to register a new customer. Input is JSON object serliazed as a string',
             'update_sales_invoice': 'have to be used by assistant to update a sales invoice. Input is JSON object serialized as a string',
@@ -175,6 +177,12 @@ class FrappeHandler(APIHandler):
                 return f"Unexpected Doc Status: {docstatus}"
         except Exception as e:
             return f"Error: {e}"
+    
+    def get_sales_invoice_detail(self, name):
+        sales_invoice = self.client.get_documents('Sales Invoice', filters=[['name', '=', name]])
+        sales_invoice_items = self.client.get_documents('Sales Invoice Item', filters=[['parenttype', '=', 'Sales Invoice'], ['parent', '=', name]], parent='Sales Invoice')
+        sales_invoice['items'] = sales_invoice_items
+        return sales_invoice
 
     def register_new_customer(self, data):
         """
