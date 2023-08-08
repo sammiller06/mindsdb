@@ -38,7 +38,7 @@ class FrappeClient(object):
             document_response.raise_for_status()
         return document_response.json()['data']
 
-    def get_documents(self, doctype: str, limit: int = None, fields: List[str] = None, filters: List[List] = None) -> List[Dict]:
+    def get_documents(self, doctype: str, limit: int = None, fields: List[str] = None, filters: List[List] = None, parent: str = None) -> List[Dict]:
         """Gets all documents matching the given doctype from Frappe.
         
         See https://frappeframework.com/docs/v14/user/en/api/rest#listing-documents
@@ -56,11 +56,18 @@ class FrappeClient(object):
             params['filters'] = json.dumps(filters)
         if fields is not None:
             params['fields'] = json.dumps(fields)
-        documents_response = requests.get(
-            f'{self.base_url}/resource/{doctype}/',
-            params=params,
-            headers=self.headers,
-            allow_redirects=False)
+        if parent:
+            documents_response = requests.get(
+				f'{self.base_url}/resource/{doctype}?parent={parent}',
+                params=params,
+                headers=self.headers,
+				allow_redirects=False)
+        else:
+            documents_response = requests.get(
+				f'{self.base_url}/resource/{doctype}/',
+				params=params,
+				headers=self.headers,
+				allow_redirects=False)
         if documents_response.is_redirect:
             # We have to manually redirect to preserve the 'Authorization' header.
             # See https://github.com/request/request/pull/1184/commits/210b326fd8625f358e06c59dc11e74468b1de515.
@@ -96,6 +103,29 @@ class FrappeClient(object):
             if 400 <= post_response.status_code < 600:
                 raise requests.HTTPError(f'{post_response.reason}: {post_response.text}', response=post_response)
         return post_response.json()['data']
+
+    def update_document(
+            self,
+            doctype: str,
+            name: str,
+            data: Dict):
+        """Updates document of the given doctype.
+        See https://frappeframework.com/docs/v14/user/en/api/rest#listing-documents
+        
+        Args:
+            doctype (str): Type of the document to update.
+            name (str): name of the document to update.
+            data (Dict): Document object.
+        """
+        update_response = requests.put(
+            f'{self.base_url}/resource/{doctype}/{name}',
+            json=data,
+            headers=self.headers)
+        if not update_response.ok:
+            if 400 <= update_response.status_code < 600:
+               raise requests.HTTPError(f'{update_response.reason}: {update_response.text}', response=update_response)
+        return update_response.json()['data']
+        #return update_response
 
     def ping(self) -> bool:
         """Sends a basic request to the Frappe API to see if it succeeds.
