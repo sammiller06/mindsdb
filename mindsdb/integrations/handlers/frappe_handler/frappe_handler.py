@@ -52,8 +52,10 @@ class FrappeHandler(APIHandler):
             'get_permitted_company': 'have to be used by assistant to get all permitted companies for the user. There is no input to pass',
             'register_sales_invoice': 'have to be used by assistant to register a sales invoice. Input is JSON object serialized as a string. Due date have to be passed in format: "yyyy-mm-dd".',
             'register_new_customer': 'have to be used by assistant to register a new customer. Input is JSON object serliazed as a string',
+            'submit_sales_invoice': 'have to be used by assistant to submit a sales invoice. Input is JSON object serialized as a string',
             'update_sales_invoice': 'have to be used by assistant to update a sales invoice. Input is JSON object serialized as a string',
             'cancel_sales_invoice': 'have to be used by assistant to cancel a sales invoice. Input is JSON object serialized as a string',
+            'register_payment_entry': 'have to be used by assistant to create a payment entry. Input is JSON object serialized as a string',
             'check_company_exists': 'useful to check the company is exist using fuzzy search. Input is company',
             'check_sales_invoice': 'useful to check the sales invoice is exist. Input is name',
             'check_customer':  'useful to search for existing customers. Input is customer',
@@ -74,7 +76,8 @@ class FrappeHandler(APIHandler):
                 {
                   "name": "T-shirt--",
                   "description": "T-shirt",
-                  "quantity": 1
+                  "quantity": 1,
+                  "rate": 20.3
                 }
               ]
             }
@@ -96,13 +99,21 @@ class FrappeHandler(APIHandler):
             item['income_account'] = item_default['income_account']
             item['cost_center'] = item_default['selling_cost_center']
 
+        #invoice['tc_name'] = "TNP Terms and Conditions"
+
+        invoice_number = None
+
         try:
             self.connect()
-            print(invoice)
-            self.client.post_document('Sales Invoice', invoice)
+            #self.client.post_document('Sales Invoice', invoice)
+            response_data, invoice_number = self.client.post_document('Sales Invoice', invoice)
         except Exception as e:
             return f"Error: {e}"
-        return f"Success"
+
+        if invoice_number is not None:
+            return f"Invoice Number: {invoice_number} has been successfully created"
+        else:
+            return f"Unable to create invoice"
 
     def update_sales_invoice(self, data):
         """
@@ -130,12 +141,25 @@ class FrappeHandler(APIHandler):
         if 'customer' in invoice and invoice['customer'].strip():
              invoice['title'] = invoice['customer']
 
-        #adding new items
+        # adding new items
         if 'items' in invoice and len(invoice['items']) > 0:
+            # fetch existing items from the invoice data
+            existing_items = []
+            invoice_data = self.check_sales_invoice_item(invoice['name'], True)
+            if 'items' in invoice_data and len(invoice_data['items']) > 0:
+                existing_items = invoice_data['items']
+
             for item in invoice['items']:
                 # rename column
                 item['qty'] = item['quantity']
                 del item['quantity']
+
+            # merge existing and new items
+            invoice_data['items'] = existing_items + invoice['items']
+
+        # if no new items, copy over the existing items
+        elif 'items' in invoice_data and len(invoice_data['items']) > 0:
+            invoice['items'] = invoice_data['items']
 
         try:
             self.connect()
@@ -143,6 +167,40 @@ class FrappeHandler(APIHandler):
         except Exception as e:
             return f"Error: {e}"
         return f"Success"
+
+    def submit_sales_invoice(self, data):
+        """
+        input is:
+           {
+              "name": "ACC-SINV-2023-00070"
+           }
+        """
+
+        invoice = json.loads(data)
+
+        try:
+            self.connect()
+            # check the docstatus of the invoice
+            invoice_data = self.check_sales_invoice(invoice['name'], True)
+            docstatus = invoice_data['docstatus']
+
+            # if the docstatus is 0 (Draft)
+            if docstatus ==0:
+                self.client.update_document('Sales Invoice', invoice['name'], data={"docstatus": 1})
+                return f"Success"
+
+            # if the docstatus is 1 (Unpaid)
+            elif docstatus == 1:
+                return "Invoice already submitted"
+
+            # if the docstatus is 2 (Cancelled)
+            elif docstatus ==2:
+                return "Invoice is cancelled"
+
+            else:
+                return f"Unexpected Doc Status: {docstatus}"
+        except Exception as e:
+            return f"Error: {e}"
 
     def cancel_sales_invoice(self, data):
         """
@@ -183,6 +241,44 @@ class FrappeHandler(APIHandler):
         sales_invoice_items = self.client.get_documents('Sales Invoice Item', filters=[['parenttype', '=', 'Sales Invoice'], ['parent', '=', name]], parent='Sales Invoice')
         sales_invoice['items'] = sales_invoice_items
         return sales_invoice
+
+    def register_payment_entry(self, data):
+        """
+          input is:
+            {
+              "posting_date": "2023-05-31",
+              "payment_type": "Receive",
+              "mode_of_payment": "Wire Transfer",
+              "reference": [
+                {
+                  "reference_doctype": "Sales Invoice"
+                  "reference_name": "ACC-SINV-2023-00097",
+                }
+              ]
+            }
+        """
+        payment_entry = json.loads(data)
+        date = dt.datetime.strptime(payment_entry['posting_date'], '%Y-%m-%d')
+        if date < dt.datetime.today():
+            return 'Error: posting date have to be in the future'
+
+        for reference in payment_entry['reference_name']:
+            # Reference type Sales Invoice
+            payment_entry['reference_doctype'] = 'Sales Invoice'
+
+        payment_number = None
+
+        try:
+            self.connect()
+            response_data, payment_number = self.client.post_document('Payment Entry', payment_entry)
+        except Exception as e:
+            return f"Error: {e}"
+
+        if payment_number is not None:
+            return f"Payment Entry: {payment_number} has been successfully created"
+        else:
+            return f"Unable to create payment entry"
+
 
     def register_new_customer(self, data):
         """
@@ -274,6 +370,17 @@ class FrappeHandler(APIHandler):
             else:
                return "Sales Invoice doesn't exist: please enter a valid invoice number"
 
+    def check_sales_invoice_item(self, name, return_full_data=False):
+        self.connect()
+        result = self.client.get_documents('Sales Invoice Item', 'parent', ':', name)
+        if len(result) == 1:
+            return result[0] if return_full_data else True
+        else:
+            if return_full_data:
+               raise ValueError(f"Sales Invoice {parent} does not exist")
+            else:
+               return "Sales Invoice doesn't exist: please enter a valid invoice number"
+
     def check_customer(self, name):
         self.connect()
 
@@ -359,8 +466,11 @@ class FrappeHandler(APIHandler):
     def _create_document(self, params: Dict = None) -> pd.DataFrame:
         client = self.connect()
         doctype = params['doctype']
-        new_document = client.post_document(doctype, json.loads(params['data']))
-        return pd.DataFrame.from_records([self._document_to_dataframe_row(doctype, new_document)])
+        # return new sales invoice number as well
+        new_document, invoice_number = client.post_document(doctype, json.loads(params['data']))
+        return pd.DataFrame.from_records([self._document_to_dataframe_row(doctype, new_document)]), invoice_number
+        #new_document = client.post_document(doctype, json.loads(params['data']))
+        #return pd.DataFrame.from_records([self._document_to_dataframe_row(doctype, new_document)])
 
     def _update_document(self, params: Dict = None) -> pd.DataFrame:
         client = self.connect()
