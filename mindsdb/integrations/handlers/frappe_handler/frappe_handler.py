@@ -48,7 +48,7 @@ class FrappeHandler(APIHandler):
 
     def back_office_config(self):
         tools = {
-            'get_permitted_company': 'have to be used by assistant to get all permitted companies for the user. There is no input to pass',
+            'get_company': 'have to be used by assistant to get all permitted companies for the user. Input is None',
             'register_sales_invoice': 'have to be used by assistant to register a sales invoice. Input is JSON object serialized as a string. Due date have to be passed in format: "yyyy-mm-dd".',
             'register_new_customer': 'have to be used by assistant to register a new customer. Input is JSON object serliazed as a string',
             'submit_sales_invoice': 'have to be used by assistant to submit a sales invoice. Input is JSON object serialized as a string',
@@ -56,11 +56,12 @@ class FrappeHandler(APIHandler):
             'cancel_sales_invoice': 'have to be used by assistant to cancel a sales invoice. Input is JSON object serialized as a string',
             'register_payment_entry': 'have to be used by assistant to create a payment entry. Input is JSON object serialized as a string',
             'check_company_exists': 'useful to check the company is exist using fuzzy search. Input is company',
-            'check_sales_invoice': 'useful to check the sales invoice is exist. Input is name',
+            #'check_sales_invoice': 'useful to check the sales invoice is exist. Input is name',
             'get_sales_invoice_detail': 'have to be used by asssitant to get the sales invoice details. Input is invoice',
             'check_customer':  'useful to search for existing customers. Input is customer',
-            'check_item_code':  'have to be used to check the item code. Input is item_code',
-            'search_item_by_keyword' : 'have to be used by assistant to find a match or a close match item based on the keyword provided by the user',
+            #'check_item_code':  'have to be used to check the item code. Input is item_code', disable to allow user has convenient to search by keyword, only use to validate before submission invoive
+            'search_item_by_keyword' : 'have to be used by assistant to find a match or a close match item based on the keyword provided by the user. Input is keyword',
+            #'get_item_price': 'have to be used by assistant to find the item price. Input is item_code',
         }
         return {
             'tools': tools,
@@ -84,7 +85,7 @@ class FrappeHandler(APIHandler):
         """
         invoice = json.loads(data)
         if not invoice.get('company'):
-            invoice['company'] = self.get_permitted_company()[0]['name']
+            invoice['company'] = self.get_company()[0]['name']
         date = dt.datetime.strptime(invoice['due_date'], '%Y-%m-%d')
         if date < dt.datetime.today():
             return 'Error: due_date have to be in the future'
@@ -123,47 +124,56 @@ class FrappeHandler(APIHandler):
             }
         """
         invoice = json.loads(data)
-
+        invoice_details = self.get_sales_invoice_detail(invoice['name'])[0]
         #check that the due date is not prior to posting date
         if 'due_date' in invoice and invoice['due_date'].strip():
            due_date = dt.datetime.strptime(invoice['due_date'], '%Y-%m-%d')
            try:
-
-               invoice_data = self.check_sales_invoice(invoice['name'], True)
-               posting_date_str = invoice_data['posting_date']
+               posting_date_str = invoice_details['posting_date']
                posting_date = dt.datetime.strptime(posting_date_str, '%Y-%m-%d')
                if due_date < posting_date:
                    return 'Error: due_date cannot be before invoice posting date'
            except ValueError as e:
                return f'Error: {e}'
-
+           
         #update title with customer name
         if 'customer' in invoice and invoice['customer'].strip():
              invoice['title'] = invoice['customer']
-
+        
         # adding new items
+        invoice_items = invoice_details['items']
         if 'items' in invoice and len(invoice['items']) > 0:
-            # fetch existing items from the invoice data
-            existing_items = []
-            invoice_data = self.check_sales_invoice_item(invoice['name'], True)
-            if 'items' in invoice_data and len(invoice_data['items']) > 0:
-                existing_items = invoice_data['items']
-
             for item in invoice['items']:
-                # rename column
+                item_details = self.search_item_by_keyword(item['item_code'])[0]
+                item_default = self.get_item_default({**item, 'company': invoice_details['company']})
+                item['item_name'] = item_details['item_name']
+                item['description'] = item_details['description']
+                item['uom'] = item_details['stock_uom']
+                item['conversion_factor'] = 1
+                item['income_account'] = item_default['income_account'] or invoice_items[0]['income_account']
+                item['cost_center'] = item_default['selling_cost_center'] or invoice_items[0]['cost_center']
+                item['rate'] = item.get('rate', 0)
+                item['base_rate'] = item['rate']
                 item['qty'] = item['quantity']
-                del item['quantity']
+                item['amount'] = item['rate'] * item['qty']
+                item['base_amount'] = item['amount']
+                
+                if not item['amount'] and item_default.get('rate'):
+                    item['base_rate'] = item_details['rate'][0]['price_list_rate']
+                    item['rate'] = item_details['rate'][0]['price_list_rate']
+                    item['base_amount'] = item['rate'] * item['qty']
+                    item['amount'] = item['rate'] * item['qty']
+                invoice_items.append(item)
 
-            # merge existing and new items
-            invoice_data['items'] = existing_items + invoice['items']
-
-        # if no new items, copy over the existing items
-        elif 'items' in invoice_data and len(invoice_data['items']) > 0:
-            invoice['items'] = invoice_data['items']
+        payload = {
+            'doctype': 'Sales Invoice',
+            'name': invoice['name'],
+            'items': invoice_items
+        }
 
         try:
             self.connect()
-            self.client.update_document('Sales Invoice', invoice['name'], invoice)
+            self.client.update_document('Sales Invoice', invoice['name'], payload)
         except Exception as e:
             return f"Error: {e}"
         return f"Success"
@@ -238,11 +248,15 @@ class FrappeHandler(APIHandler):
     
     def get_sales_invoice_detail(self, invoice):
         self.connect()
-        sales_invoices = self.client.get_documents('Sales Invoice', filters=[['name', '=', invoice]], limit=1)
+        sales_invoices = self.client.get_documents(
+            'Sales Invoice', filters=[['name', '=', invoice]], 
+            fields=['name', 'company', 'posting_date', 'due_date', 'currency', 'grand_total', 'outstanding_amount', 'status'],
+            limit=1)
         for invoice in sales_invoices:
             invoice['items'] = self.client.get_documents(
                 'Sales Invoice Item',
                 filters=[['parenttype', '=', 'Sales Invoice'], ['parent', '=', invoice['name']]],
+                fields=['name', 'idx', 'item_name', 'item_code', 'description', 'qty', 'rate', 'base_rate', 'uom', 'conversion_factor', 'amount', 'base_amount', 'income_account', 'cost_center'],
                 parent='Sales Invoice'
             )
         return sales_invoices
@@ -311,7 +325,7 @@ class FrappeHandler(APIHandler):
    
     def search_item_by_keyword(self, keyword):
         self.connect()
-        fields = ['name', 'item_code', 'description', 'company']
+        fields = ['name', 'item_code', 'item_name', 'description', 'company', 'stock_uom', 'standard_rate']
         result = []
 
         filters = [
@@ -368,9 +382,11 @@ class FrappeHandler(APIHandler):
         result = self.client.get_documents('Company', filters=[['name', '=', company]], fields=fields)
         return result[0]
     
-    def get_permitted_company(self):
+    def get_company(self, fields=None):
         self.connect()
-        result = self.client.get_documents('Company', fields=['name'])
+        if fields == 'None':
+            fields = ['name']
+        result = self.client.get_documents('Company', fields=fields)
         return result
     
     def check_company_exists(self, name):
