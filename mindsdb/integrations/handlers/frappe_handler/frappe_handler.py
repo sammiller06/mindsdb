@@ -45,6 +45,7 @@ class FrappeHandler(APIHandler):
         document_data = FrappeDocumentsTable(self)
         self._register_table('documents', document_data)
         self.connection_data = args
+        self.erp_url = 'https://cloude8-v13beta-demo.cloude8.com'
 
     def back_office_config(self):
         tools = {
@@ -64,8 +65,10 @@ class FrappeHandler(APIHandler):
             'get_sales_invoice_detail': 'have to be used by asssitant to get the sales invoice details. Input is sales invoice name',
             'get_sales_order_detail': 'have to be used by asssitant to get the sales order details. Input is sales order name',
             'check_customer':  'useful to search for existing customers. Input is customer',
+            'search_customer_by_name': 'have to be used by assistant to find customer based on provided name. Input it customer name',
             'check_item_code':  'have to be used to check the item code. Input is item_code',
             'search_item_by_keyword' : 'have to be used by assistant to find a match or a close match item based on the keyword provided by the user. Input is keyword',
+            'create_address': 'have to be used by assistant to create address for customer.Input is JSON object serialized as a string'
             #'get_item_price': 'have to be used by assistant to find the item price. Input is item_code',
         }
         return {
@@ -88,7 +91,10 @@ class FrappeHandler(APIHandler):
               ]
             }
         """
-        data = json.loads(data)
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError:
+            pass   
         
         if not data.get('company'):
             data['company'] = self.get_company()[0]['name']
@@ -112,19 +118,18 @@ class FrappeHandler(APIHandler):
             item['income_account'] = item_default['income_account']
             item['cost_center'] = item_default['selling_cost_center']
         
-        sales_name = None
-
         try:
             self.connect()
             response = self.client.post_document(doctype, data)
-            sales_name = response['name']
-        except Exception as e:
-            return f"Error: {e}"
+            success_msg = f"{doctype} : {response.get('name')} has been successfully created."
+            pdf = self.generate_pdf_url(response)
+            if pdf:
+                success_msg += f" PDF URL: {pdf}"
 
-        if sales_name is not None:
-            return f"{doctype} : {sales_name} has been successfully created"
-        else:
-            return f"Unable to create invoice"
+            return success_msg
+        except Exception as e:
+            print (e)
+            return f"Error: {e}"
     
     def _update_sales(self, doctype, data):
         """
@@ -133,7 +138,10 @@ class FrappeHandler(APIHandler):
               "name": "ACC-SINV-2023-00070"
             }
         """
-        data = json.loads(data)
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError:
+            pass
         #check that the due date is not prior to posting date
         if doctype == 'Sales Invoice':
             sales_details = self.get_sales_invoice_detail(data['name'])[0]
@@ -208,7 +216,10 @@ class FrappeHandler(APIHandler):
                     "name": "ACC-SINV-2023-00070"
                 }
         """
-        data = json.loads(data)
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError:
+            pass  
 
         try:
             self.connect()
@@ -241,7 +252,10 @@ class FrappeHandler(APIHandler):
                     "name": "ACC-SINV-2023-00070"
                 }
             """
-        data = json.loads(data)
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError:
+            pass  
         
         try:
             self.connect()
@@ -326,8 +340,17 @@ class FrappeHandler(APIHandler):
         self._get_sales_details('Sales Invoice', name)
 
     def get_sales_order_detail(self, name):
-        self._get_sales_details('Sales Order', name)    
-
+        self._get_sales_details('Sales Order', name)
+    
+    def generate_pdf_url(self, data):
+        pdf_url = ''
+        try:
+            pdf_url = f"{self.erp_url}/api/method/frappe.utils.print_format.download_pdf?doctype={data.get('doctype')}&name={data.get('name')}&format=Standard&no_letterhead=0&letterhead={data.get('letter_head')}&settings=%7B%7D&\_lang={data.get('language')}"
+        except Exception as e:
+            print ("Err", e)
+        print ("PDF", pdf_url)
+        return pdf_url
+     
     def register_payment_entry(self, data):
         """
           input is:
@@ -343,20 +366,24 @@ class FrappeHandler(APIHandler):
               ]
             }
         """
-        payment_entry = json.loads(data)
-        date = dt.datetime.strptime(payment_entry['posting_date'], '%Y-%m-%d')
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError:
+            pass
+
+        date = dt.datetime.strptime(data['posting_date'], '%Y-%m-%d')
         if date < dt.datetime.today():
             return 'Error: posting date have to be in the future'
 
-        for reference in payment_entry['reference_name']:
+        for reference in data['reference_name']:
             # Reference type Sales Invoice
-            payment_entry['reference_doctype'] = 'Sales Invoice'
+            data['reference_doctype'] = 'Sales Invoice'
 
         payment_number = None
 
         try:
             self.connect()
-            response = self.client.post_document('Payment Entry', payment_entry)
+            response = self.client.post_document('Payment Entry', data)
             payment_number = response['name']
         except Exception as e:
             return f"Error: {e}"
@@ -374,14 +401,47 @@ class FrappeHandler(APIHandler):
              "name": "John Doe"
            }
         """
-        customer_name = json.loads(data)
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError:
+            pass
 
         try:
             self.connect()
-            self.client.post_document('Customer', customer_name)
+            self.client.post_document('Customer', data)
         except Exception as e:
             return f"Error: {e}"
         return f"Success"
+    
+    def create_address(self, data):
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError:
+            pass
+        
+        required_keys = ['customer', 'address_line1', 'address_type', 'city', 'country']
+        missing_keys = [key for key in required_keys if data.get(key) is None]
+        if missing_keys:
+            return f"Incomplete address information. Missing keys: {', '.join(missing_keys)}"
+    
+        payload = {
+            'address_line1': data.get('address_line1'),
+            'address_type': data.get('address_type'),
+            'city': data.get('city'),
+            'country': data.get('country'),
+            'links': [{
+                'link_doctype': 'Customer',
+                'link_name': data.get('customer'),
+                'link_title': data.get('customer')
+            }]
+        }
+
+        try:
+            self.connect()
+            self.client.post_document('Address', payload)
+        except Exception as e:
+            return f"Unable to create address: {e}"    
+        return "Address has been successfully created"
 
     def check_item_code(self, item_code):
         self.connect()
@@ -392,7 +452,7 @@ class FrappeHandler(APIHandler):
    
     def search_item_by_keyword(self, keyword):
         self.connect()
-        fields = ['name', 'item_code', 'item_name', 'description', 'company', 'stock_uom', 'standard_rate']
+        fields = ['name', 'item_code', 'item_name', 'description', 'company', 'stock_uom', 'standard_rate', 'is_stock_item']
         result = []
 
         filters = [
@@ -461,7 +521,7 @@ class FrappeHandler(APIHandler):
         result = self.client.get_documents('Company', filters=[['name', '=', name]])
         if len(result) == 1:
             return True
-        return "Company doesn't exist: please use different name"
+        return "Company doesn't exist: please list all available company for user to choose"
 
     def check_customer(self, name):
         self.connect()
@@ -485,7 +545,27 @@ class FrappeHandler(APIHandler):
         if len(result) == 1:
             return True
         return "Customer doesn't exist"
+    
+    def search_customer_by_name(self, name):
+        self.connect()
+        fields = ['name', 'customer_name', 'customer_type', 'company']
+        result = []
 
+        filters = [
+            ['name', 'like', f'%{name}%'],
+            ['customer_name', 'like', f'%{name}%']
+        ]
+
+        for filter_group in filters:
+            result = self.client.get_documents('Customer', filters=[filter_group], fields=fields)
+            if result:
+                break
+
+        if result:
+            return result
+        else:
+            return "No customer found with the given name."
+        
     def connect(self) -> FrappeClient:
         """Creates a new  API client if needed and sets it as the client to use for requests.
 

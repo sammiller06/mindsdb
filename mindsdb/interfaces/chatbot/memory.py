@@ -11,7 +11,7 @@ class BaseMemory:
     '''
     base class to work with chatbot memory
     '''
-    MAX_DEPTH = 100
+    MAX_DEPTH = 20
 
     def __init__(self, chat_task, chat_params):
         # in memory yet
