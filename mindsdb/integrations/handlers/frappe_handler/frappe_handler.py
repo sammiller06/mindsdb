@@ -13,7 +13,7 @@ from mindsdb.integrations.libs.response import (
 )
 from mindsdb.utilities import log
 from mindsdb_sql import parse_sql
-
+from six import string_types
 class FrappeHandler(APIHandler):
     """A class for handling connections and interactions with the Frappe API.
 
@@ -91,11 +91,9 @@ class FrappeHandler(APIHandler):
               ]
             }
         """
-        try:
+        if isinstance(data, string_types):
             data = json.loads(data)
-        except json.JSONDecodeError:
-            pass   
-        
+
         if not data.get('company'):
             data['company'] = self.get_company()[0]['name']
         if doctype == 'Sales Invoice':
@@ -112,20 +110,18 @@ class FrappeHandler(APIHandler):
             if 'quantity' in item and 'qty' not in item:
                 item['qty'] = item['quantity']
                 del item['quantity']
-            if not item.get('company'):
-                item['company'] = data['company']
-            item_default = self.get_item_default(item)
+            item_default = self.get_item_default({**item, 'company': data['company']})
             item['income_account'] = item_default['income_account']
             item['cost_center'] = item_default['selling_cost_center']
+            item['warehouse'] = item_default['warehouse']
         
         try:
             self.connect()
             response = self.client.post_document(doctype, data)
-            success_msg = f"{doctype} : {response.get('name')} has been successfully created."
+            success_msg = f"{doctype} : {response['name']} has been successfully created."
             pdf = self.generate_pdf_url(response)
             if pdf:
-                success_msg += f" PDF URL: {pdf}"
-
+                success_msg += f" PDF URL:" + pdf
             return success_msg
         except Exception as e:
             print (e)
@@ -138,10 +134,8 @@ class FrappeHandler(APIHandler):
               "name": "ACC-SINV-2023-00070"
             }
         """
-        try:
+        if isinstance(data, string_types):
             data = json.loads(data)
-        except json.JSONDecodeError:
-            pass
         #check that the due date is not prior to posting date
         if doctype == 'Sales Invoice':
             sales_details = self.get_sales_invoice_detail(data['name'])[0]
@@ -216,10 +210,8 @@ class FrappeHandler(APIHandler):
                     "name": "ACC-SINV-2023-00070"
                 }
         """
-        try:
+        if isinstance(data, string_types):
             data = json.loads(data)
-        except json.JSONDecodeError:
-            pass  
 
         try:
             self.connect()
@@ -252,10 +244,8 @@ class FrappeHandler(APIHandler):
                     "name": "ACC-SINV-2023-00070"
                 }
             """
-        try:
+        if isinstance(data, string_types):
             data = json.loads(data)
-        except json.JSONDecodeError:
-            pass  
         
         try:
             self.connect()
@@ -317,24 +307,31 @@ class FrappeHandler(APIHandler):
                return f"{doctype} {name} doesn't exist: please enter a valid invoice number"
     
     def _get_sales_details(self, doctype, name):
-        self.connect()
-        fields = ['name', 'company', 'currency', 'grand_total', 'outstanding_amount', 'status']
+        fields = ['name', 'company', 'currency', 'grand_total', 'status']
+        item_fields = ['name', 'idx', 'item_name', 'item_code', 'description', 'qty', 'rate', 'base_rate', 'uom', 'conversion_factor', 'amount', 'base_amount']
         if doctype == 'Sales Invoice':
-            fields.extend(['posting_date', 'due_date'])
+            fields.extend(['posting_date', 'due_date', 'outstanding_amount'])
+            item_fields.extend(['income_account', 'cost_center'])
         elif doctype == 'Sales Order':
             fields.extend(['transaction_date', 'delivery_date'])
-        data = self.client.get_documents(
-            doctype, filters=[['name', '=', name]], 
-            fields=fields,
-            limit=1)
-        for i in data:
-            i['items'] = self.client.get_documents(
-                f'{doctype} Item',
-                filters=[['parenttype', '=', doctype], ['parent', '=', i['name']]],
-                fields=['name', 'idx', 'item_name', 'item_code', 'description', 'qty', 'rate', 'base_rate', 'uom', 'conversion_factor', 'amount', 'base_amount', 'income_account', 'cost_center'],
-                parent=doctype
-            )
-        return data
+            item_fields.extend(['delivery_date'])
+
+        try:
+            self.connect()
+            data = self.client.get_documents(
+                doctype, filters=[['name', '=', name]], 
+                fields=fields,
+                limit=1)
+            for i in data:
+                i['items'] = self.client.get_documents(
+                    f'{doctype} Item',
+                    filters=[['parenttype', '=', doctype], ['parent', '=', i['name']]],
+                    fields=item_fields,
+                    parent=doctype
+                )
+            return data
+        except Exception as e:
+            return f"Unable to get the details {doctype}: {name}. {e}"          
     
     def get_sales_invoice_detail(self, name):
         self._get_sales_details('Sales Invoice', name)
@@ -343,13 +340,7 @@ class FrappeHandler(APIHandler):
         self._get_sales_details('Sales Order', name)
     
     def generate_pdf_url(self, data):
-        pdf_url = ''
-        try:
-            pdf_url = f"{self.erp_url}/api/method/frappe.utils.print_format.download_pdf?doctype={data.get('doctype')}&name={data.get('name')}&format=Standard&no_letterhead=0&letterhead={data.get('letter_head')}&settings=%7B%7D&\_lang={data.get('language')}"
-        except Exception as e:
-            print ("Err", e)
-        print ("PDF", pdf_url)
-        return pdf_url
+        return f"{self.erp_url}/api/method/frappe.utils.print_format.download_pdf?doctype={data.get('doctype')}&name={data.get('name')}&format=Standard&no_letterhead=0&letterhead={data.get('letter_head')}&settings=%7B%7D&_lang={data.get('language')}"
      
     def register_payment_entry(self, data):
         """
@@ -366,11 +357,9 @@ class FrappeHandler(APIHandler):
               ]
             }
         """
-        try:
+        if isinstance(data, string_types):
             data = json.loads(data)
-        except json.JSONDecodeError:
-            pass
-
+        
         date = dt.datetime.strptime(data['posting_date'], '%Y-%m-%d')
         if date < dt.datetime.today():
             return 'Error: posting date have to be in the future'
@@ -401,10 +390,8 @@ class FrappeHandler(APIHandler):
              "name": "John Doe"
            }
         """
-        try:
+        if isinstance(data, string_types):
             data = json.loads(data)
-        except json.JSONDecodeError:
-            pass
 
         try:
             self.connect()
@@ -414,11 +401,9 @@ class FrappeHandler(APIHandler):
         return f"Success"
     
     def create_address(self, data):
-        try:
+        if isinstance(data, string_types):
             data = json.loads(data)
-        except json.JSONDecodeError:
-            pass
-        
+
         required_keys = ['customer', 'address_line1', 'address_type', 'city', 'country']
         missing_keys = [key for key in required_keys if data.get(key) is None]
         if missing_keys:
@@ -481,12 +466,13 @@ class FrappeHandler(APIHandler):
     def get_item_default(self, item):
         self.connect()
         # Get company defaults
-        company_defaults = self.get_company_defaults(item['company'], ["cost_center", "default_income_account"])
+        company_defaults = self.get_company_defaults(item['company'], ['cost_center', 'default_income_account'])
         # Create the output dictionary with default values from the company
         output = {
             'buying_cost_center': company_defaults.get('cost_center', ''),
             'selling_cost_center': company_defaults.get('cost_center', ''),
-            'income_account': company_defaults.get('default_income_account', '')
+            'income_account': company_defaults.get('default_income_account', ''),
+            'warehouse': ''
         }
         # Get item defaults from the client
         result = self.client.get_documents('Item Default', filters=[['parenttype', '=', 'Item'], ['parent', '=', item['item_code']], ['company', '=', item['company']]], parent='Item')
@@ -501,6 +487,7 @@ class FrappeHandler(APIHandler):
                     output['buying_cost_center'] = item_default['buying_cost_center']
                 if item_default.get('income_account') and item_default['income_account'] != output['income_account']:
                     output['income_account'] = item_default['income_account']
+                output['warehouse'] = item_default['default_warehouse']
                 break  # Break out of the loop after updating the output once
 
         return output
