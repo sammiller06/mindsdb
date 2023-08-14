@@ -64,6 +64,8 @@ class FrappeHandler(APIHandler):
             #'check_sales_record': 'useful to check the sales invoice is exist. Input is name',
             'get_sales_invoice_detail': 'have to be used by asssitant to get the sales invoice details. Input is sales invoice name',
             'get_sales_order_detail': 'have to be used by asssitant to get the sales order details. Input is sales order name',
+            'get_sales_invoice_pdf': 'have to be used by assistant to get the pdf url for the sales invoice. Input is sales invoice name',
+            'get_sales_order_pdf': 'have to be used by assistant to get the pdf url for the sales order. Input is sales order name',
             'check_customer':  'useful to search for existing customers. Input is customer',
             'search_customer_by_name': 'have to be used by assistant to find customer based on provided name. Input it customer name',
             'check_item_code':  'have to be used to check the item code. Input is item_code',
@@ -319,15 +321,18 @@ class FrappeHandler(APIHandler):
             else:
                return f"{doctype} {name} doesn't exist: please enter a valid invoice number"
     
-    def _get_sales_details(self, doctype, name):
-        fields = ['name', 'company', 'currency', 'grand_total', 'status']
-        item_fields = ['name', 'idx', 'item_name', 'item_code', 'description', 'qty', 'rate', 'base_rate', 'uom', 'conversion_factor', 'amount', 'base_amount']
-        if doctype == 'Sales Invoice':
-            fields.extend(['posting_date', 'due_date', 'outstanding_amount'])
-            item_fields.extend(['income_account', 'cost_center'])
-        elif doctype == 'Sales Order':
-            fields.extend(['transaction_date', 'delivery_date'])
-            item_fields.extend(['delivery_date'])
+    def _get_sales_details(self, doctype, name, for_pdf=False):
+        if for_pdf:
+            fields = ['name', 'letter_head', 'language']
+        else:
+            fields = ['name', 'company', 'currency', 'grand_total', 'status']
+            item_fields = ['name', 'idx', 'item_name', 'item_code', 'description', 'qty', 'rate', 'base_rate', 'uom', 'conversion_factor', 'amount', 'base_amount']
+            if doctype == 'Sales Invoice':
+                fields.extend(['posting_date', 'due_date', 'outstanding_amount'])
+                item_fields.extend(['income_account', 'cost_center'])
+            elif doctype == 'Sales Order':
+                fields.extend(['transaction_date', 'delivery_date'])
+                item_fields.extend(['delivery_date'])
 
         try:
             self.connect()
@@ -335,6 +340,8 @@ class FrappeHandler(APIHandler):
                 doctype, filters=[['name', '=', name]], 
                 fields=fields,
                 limit=1)
+            if for_pdf:
+                return data[0]
             for i in data:
                 i['items'] = self.client.get_documents(
                     f'{doctype} Item',
@@ -352,9 +359,36 @@ class FrappeHandler(APIHandler):
     def get_sales_order_detail(self, name):
         return self._get_sales_details('Sales Order', name)
     
+    def get_sales_order_pdf(self, name):
+        data = self._get_sales_details('Sales Order', name, True)
+        data['doctype'] = 'Sales Order'
+        return self.generate_pdf_url(data)
+
+    def get_sales_invoice_pdf(self, name):
+        data = self._get_sales_details('Sales Invoice', name, True)
+        data['doctype'] = 'Sales Invoice'
+        return self.generate_pdf_url(data)
+    
     def generate_pdf_url(self, data):
-        return f"{self.erp_url}/api/method/frappe.utils.print_format.download_pdf?doctype={data.get('doctype')}&name={data.get('name')}&format=Standard&no_letterhead=0&letterhead={data.get('letter_head')}&settings=%7B%7D&_lang={data.get('language')}"
-     
+        base_url = self.erp_url
+        doctype = data.get('doctype')
+        name = data.get('name')
+        letter_head = data.get('letter_head')
+        language = data.get('language')
+
+        pdf_url = (
+            f"{base_url}/api/method/frappe.utils.print_format.download_pdf?"
+            f"doctype={doctype}"
+            f"&name={name}"
+            f"&format=Standard"
+            f"&no_letterhead=0"
+            f"&letterhead={letter_head}"
+            f"&settings=%7B%7D"
+            f"&_lang={language}"
+        )
+
+        return pdf_url
+    
     def register_payment_entry(self, data):
         """
           input is:
