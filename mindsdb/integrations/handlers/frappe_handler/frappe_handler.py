@@ -171,7 +171,7 @@ class FrappeHandler(APIHandler):
                 item_details = self.search_item_by_keyword(item['item_code'])[0]
                 item_default = self.get_item_default({**item, 'company': sales_details['company']})
                 item['item_name'] = item_details['item_name']
-                item['description'] = item_details['description']
+                item['description'] = item['description'] or item_details['description']
                 item['uom'] = item_details['stock_uom']
                 item['conversion_factor'] = 1
                 item['income_account'] = item_default['income_account'] or sales_items[0]['income_account']
@@ -198,7 +198,12 @@ class FrappeHandler(APIHandler):
 
         try:
             self.connect()
-            return self.client.update_document(doctype, data['name'], payload)
+            response = self.client.update_document(doctype, data['name'], payload)
+            success_msg = f"{doctype} : {response['name']} has been successfully updated."
+            pdf = self.generate_pdf_url(response)
+            if pdf:
+                success_msg += f" PDF URL:" + pdf
+            return success_msg
         except Exception as e:
             return f"Error: {e}"
         #return f"Success"
@@ -221,8 +226,12 @@ class FrappeHandler(APIHandler):
 
             # if the docstatus is 0 (Draft)
             if docstatus ==0:
-                self.client.update_document(doctype, data['name'], data={"docstatus": 1})
-                return f"Success"
+                response = self.client.update_document(doctype, data['name'], data={"docstatus": 1})
+                success_msg = f"{doctype} : {response['name']} has been successfully submitted."
+                pdf = self.generate_pdf_url(response)
+                if pdf:
+                    success_msg += f" PDF URL:" + pdf
+                return success_msg
 
             # if the docstatus is 1 (Unpaid)
             elif docstatus == 1:
@@ -259,8 +268,12 @@ class FrappeHandler(APIHandler):
 
             # if the docstatus is 1 (Unpaid)
             elif docstatus == 1:
-                self.client.update_document('Sales Invoice', data['name'], data={"docstatus": 2})
-                return f"Success"
+                response = self.client.update_document('Sales Invoice', data['name'], data={"docstatus": 2})
+                success_msg = f"{doctype} : {response['name']} has been successfully cancelled."
+                pdf = self.generate_pdf_url(response)
+                if pdf:
+                    success_msg += f" PDF URL:" + pdf
+                return success_msg
 
             # if the docstatus is 2 (Cancelled)
             elif docstatus ==2:
@@ -272,28 +285,28 @@ class FrappeHandler(APIHandler):
             return f"Error: {e}"
     
     def create_sales_invoice(self, data):
-        self._create_sales('Sales Invoice', data)
+        return self._create_sales('Sales Invoice', data)
     
     def create_sales_order(self, data):
-        self._create_sales('Sales Order', data)
+        return self._create_sales('Sales Order', data)
 
     def update_sales_invoice(self, data):
-        self._update_sales('Sales Invoice', data)
+        return self._update_sales('Sales Invoice', data)
     
     def update_sales_order(self, data):
-        self._update_sales('Sales Order', data)
+        return self._update_sales('Sales Order', data)
 
     def submit_sales_invoice(self, data):
-        self._submit_sales('Sales Invoice', data)
+        return self._submit_sales('Sales Invoice', data)
 
     def submit_sales_order(self, data):
-        self._submit_sales('Sales Order', data)
+        return self._submit_sales('Sales Order', data)
     
     def cancel_sales_invoice(self, data):
-        self._cancel_sales('Sales Invoice', data)
+        return self._cancel_sales('Sales Invoice', data)
     
     def cancel_sales_order(self, data):
-        self._cancel_sales('Sales Order', data)
+        return self._cancel_sales('Sales Order', data)
 
     def check_sales_record(self, doctype, name, return_full_data=False):
         self.connect()
@@ -334,10 +347,10 @@ class FrappeHandler(APIHandler):
             return f"Unable to get the details {doctype}: {name}. {e}"          
     
     def get_sales_invoice_detail(self, name):
-        self._get_sales_details('Sales Invoice', name)
+        return self._get_sales_details('Sales Invoice', name)
 
     def get_sales_order_detail(self, name):
-        self._get_sales_details('Sales Order', name)
+        return self._get_sales_details('Sales Order', name)
     
     def generate_pdf_url(self, data):
         return f"{self.erp_url}/api/method/frappe.utils.print_format.download_pdf?doctype={data.get('doctype')}&name={data.get('name')}&format=Standard&no_letterhead=0&letterhead={data.get('letter_head')}&settings=%7B%7D&_lang={data.get('language')}"
