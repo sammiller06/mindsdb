@@ -98,6 +98,10 @@ class FrappeHandler(APIHandler):
 
         if not data.get('company'):
             data['company'] = self.get_company()[0]['name']
+        if not data.get('letter_head'):
+            company_letter_head = self.get_company_defaults(data['company'],['default_letter_head'])
+            if company_letter_head:
+                data['letter_head'] = company_letter_head['default_letter_head']
         if doctype == 'Sales Invoice':
             date = dt.datetime.strptime(data['due_date'], '%Y-%m-%d')
             if date < dt.datetime.today():
@@ -323,7 +327,7 @@ class FrappeHandler(APIHandler):
     
     def _get_sales_details(self, doctype, name, for_pdf=False):
         if for_pdf:
-            fields = ['name', 'letter_head', 'language']
+            fields = ['name', 'company', 'letter_head', 'language']
         else:
             fields = ['name', 'company', 'currency', 'grand_total', 'status']
             item_fields = ['name', 'idx', 'item_name', 'item_code', 'description', 'qty', 'rate', 'base_rate', 'uom', 'conversion_factor', 'amount', 'base_amount']
@@ -375,6 +379,11 @@ class FrappeHandler(APIHandler):
         name = data.get('name')
         letter_head = data.get('letter_head')
         language = data.get('language')
+
+        if not letter_head or letter_head == 'Blank Letterhead':
+            company_letter_head = self.get_company_defaults(data['company'],['default_letter_head'])
+            if company_letter_head:
+                letter_head = company_letter_head['default_letter_head']
 
         pdf_url = (
             f"{base_url}/api/method/frappe.utils.print_format.download_pdf?"
