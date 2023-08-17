@@ -11,7 +11,7 @@ class BaseMemory:
     '''
     base class to work with chatbot memory
     '''
-    MAX_DEPTH = 100
+    MAX_DEPTH = 20
 
     def __init__(self, chat_task, chat_params):
         # in memory yet
@@ -106,7 +106,7 @@ class HandlerMemory(BaseMemory):
                 ]
             ),
             order_by=[OrderBy(Identifier(time_col))],
-            limit=Constant(1),
+            limit=Constant(self.MAX_DEPTH),
         )
 
         resp = self.chat_task.chat_handler.query(ast_query)
