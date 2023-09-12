@@ -80,6 +80,9 @@ class FrappeClient(object):
                 headers=self.headers,
                 allow_redirects=False)
 
+        data_content = documents_response.json()['data']
+        print("Data content:", data_content)
+
         if not documents_response.ok:
             documents_response.raise_for_status()
         return documents_response.json()['data']
