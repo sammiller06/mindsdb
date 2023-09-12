@@ -54,6 +54,7 @@ class FrappeHandler(APIHandler):
             'create_sales_invoice': 'have to be used by assistant to register a sales invoice. Input is JSON object serialized as a string. Due date have to be passed in format: "yyyy-mm-dd".',
             'create_sales_order': 'have to be used by assistant to register a sales order. Input is JSON object serialized as a string',
             'register_new_customer': 'have to be used by assistant to register a new customer. Input is JSON object serliazed as a string',
+            'submit_quotation': 'have to be used by assistant to submit a quotation. Input is JSON object serialized as a string',
             'submit_sales_invoice': 'have to be used by assistant to submit a sales invoice. Input is JSON object serialized as a string',
             'submit_sales_order': 'have to be used by assistant to submit a sales order. Input is JSON object serialized as a string',
             'update_sales_invoice': 'have to be used by assistant to update a sales invoice. Input is JSON object serialized as a string',
@@ -95,13 +96,26 @@ class FrappeHandler(APIHandler):
         """
         if isinstance(data, string_types):
             data = json.loads(data)
-
+        # Handle Company
         if not data.get('company'):
             data['company'] = self.get_company()[0]['name']
         if not data.get('letter_head'):
             company_letter_head = self.get_company_defaults(data['company'],['default_letter_head'])
             if company_letter_head:
                 data['letter_head'] = company_letter_head['default_letter_head']
+
+        # Handle tc_name and terms using the company:
+        terms_and_conditions = self.get_terms_and_conditions_defaults(data['company'])
+        if terms_and_conditions:
+            if not data.get('tc_name'):
+                data['tc_name'] = terms_and_conditions['name']
+            if not data.get('terms'):
+                data['terms'] = terms_and_conditions['terms']
+
+        # Handle payment terms
+        data['payment_terms_template'] = 'Full Payment Terms'
+
+        #Check dates
         if doctype == 'Sales Invoice':
             date = dt.datetime.strptime(data['due_date'], '%Y-%m-%d')
             if date < dt.datetime.today():
@@ -110,6 +124,10 @@ class FrappeHandler(APIHandler):
             date = dt.datetime.strptime(data['delivery_date'], '%Y-%m-%d')   
             if date < dt.datetime.today():
                 return 'Error: delivery date have to be in the future'
+        elif doctype == 'Quotation':
+            date = dt.datetime.strptime(data['transaction_date'], '%Y-%m-%d')   
+            if date < dt.datetime.today():
+                return 'Error: transaction date have to be in the future'
 
         for item in data['items']:
             # rename column
@@ -138,6 +156,8 @@ class FrappeHandler(APIHandler):
           input is:
             {
               "name": "ACC-SINV-2023-00070"
+              "additional_discount_percentage": "10%" or "ten percent"
+              "discount_amount": "$100" or "100 dollars"
             }
         """
         if isinstance(data, string_types):
@@ -164,43 +184,86 @@ class FrappeHandler(APIHandler):
                     if delivery_date < transaction_date:
                         return 'Error: delivery_date cannot be before order transaction date'
                 except ValueError as e:
-                    return f'Error: {e}'       
-           
-        #update title with customer name
+                    return f'Error: {e}'
+
+        # Update discounts
+        #if 'additional_discount_percentage' in data:
+        #    data['additional_discount_percentage'] = "{:.3f}".format(float(data['additional_discount_percentage']))
+
+        # Update title with customer name
         if 'customer' in data and data['customer'].strip():
              data['title'] = data['customer']
-        
-        # adding new items
+
+        # Update items
         sales_items = sales_details['items']
+
         if 'items' in data and len(data['items']) > 0:
+            existing_items_dict = {item['item_code']: item for item in sales_items}
+
+            # 1. Removal of specified items
+            to_remove = [item for item in data['items'] if item.get('remove', False)]
+            for removal_item in to_remove:
+                sales_items = [item for item in sales_items if item['item_code'] != removal_item['item_code']]
+
+            # 2. Addition/Update of new or existing items
             for item in data['items']:
+                if item.get('remove', False):  # Skip items marked for removal
+                    continue
+
                 item_details = self.search_item_by_keyword(item['item_code'])[0]
                 item_default = self.get_item_default({**item, 'company': sales_details['company']})
                 item['item_name'] = item_details['item_name']
-                item['description'] = item['description'] or item_details['description']
+                if 'description' not in item:
+                    item['description'] = item_details.get('description','')
                 item['uom'] = item_details['stock_uom']
                 item['conversion_factor'] = 1
                 item['income_account'] = item_default['income_account'] or sales_items[0]['income_account']
                 item['cost_center'] = item_default['selling_cost_center'] or sales_items[0]['cost_center']
                 item['rate'] = item.get('rate', 0)
                 item['base_rate'] = item['rate']
+
+                existing_item = existing_items_dict.get(item['item_code'], None)
+                if existing_item:
+                    # Update the existing item details
+                    existing_index = sales_items.index(existing_item)
+                    sales_items[existing_index] = item
+                else:
+                    sales_items.append(item)  # Append new item to sales_items
+
                 if 'quantity' in item:
-                    item['qty'] = item['quantity']                        
+                    item['qty'] = item['quantity']
+                elif 'qty' in item:
+                    item['qty'] = item['qty']
+                elif existing_item:
+                    item['qty'] = existing_item['qty']
+                if 'rate' not in item and existing_item and 'rate' in existing_item:
+                    item['rate'] = existing_item['rate']
                 item['amount'] = item['rate'] * item['qty']
                 item['base_amount'] = item['amount']
-                
+
                 if not item['amount'] and item_default.get('rate'):
                     item['base_rate'] = item_details['rate'][0]['price_list_rate']
                     item['rate'] = item_details['rate'][0]['price_list_rate']
                     item['base_amount'] = item['rate'] * item['qty']
                     item['amount'] = item['rate'] * item['qty']
-                sales_items.append(item)
+
+            for idx, item in enumerate(sales_items, start=1):
+                item['idx'] = idx
 
         payload = {
             'doctype': doctype,
             'name': data['name'],
             'items': sales_items
         }
+        if 'customer' in data and data['customer'].strip():
+            payload['customer'] = data['customer']
+            payload['title'] = data['title']
+        if 'due_date' in data and data['due_date'].strip():
+            payload['due_date'] = data['due_date']
+        if 'additional_discount_percentage' in data:
+            payload['additional_discount_percentage'] = data['additional_discount_percentage']
+        if 'discount_amount' in data:
+            payload['discount_amount'] = data['discount_amount']
 
         try:
             self.connect()
@@ -290,6 +353,9 @@ class FrappeHandler(APIHandler):
         except Exception as e:
             return f"Error: {e}"
     
+    def create_quotation(self, data):
+        return self._create_sales('Quotation', data)
+
     def create_sales_invoice(self, data):
         return self._create_sales('Sales Invoice', data)
     
@@ -329,7 +395,7 @@ class FrappeHandler(APIHandler):
         if for_pdf:
             fields = ['name', 'company', 'letter_head', 'language']
         else:
-            fields = ['name', 'company', 'currency', 'grand_total', 'status']
+            fields = ['name', 'customer', 'company', 'currency', 'grand_total', 'status']
             item_fields = ['name', 'idx', 'item_name', 'item_code', 'description', 'qty', 'rate', 'base_rate', 'uom', 'conversion_factor', 'amount', 'base_amount']
             if doctype == 'Sales Invoice':
                 fields.extend(['posting_date', 'due_date', 'outstanding_amount'])
@@ -550,7 +616,7 @@ class FrappeHandler(APIHandler):
 
     def get_company_defaults(self, company, fields=["*"]):
         result = self.client.get_documents('Company', filters=[['name', '=', company]], fields=fields)
-        return result[0]
+        return result[0] if result else None
     
     def get_company(self, fields=None):
         self.connect()
@@ -566,24 +632,12 @@ class FrappeHandler(APIHandler):
             return True
         return "Company doesn't exist: please list all available company for user to choose"
 
+    def get_terms_and_conditions_defaults(self, company, fields=["*"]):
+        result = self.client.get_documents('Terms and Conditions', filters=[['company', '=', company]], fields=fields)
+        return result[0] if result else None
+
     def check_customer(self, name):
         self.connect()
-
-        #for fuzzy search logic
-        #result = self.client.get_documents('Customer', filters=[['name', 'like', "%" + name + "%"]])
-        #if len(result) == 0:
-        #    return "Customer doesn't exist"
-        #elif len(result) == 1 and result[0]['name'].lower() == name.lower():
-        #    return True
-        #else:
-            #If there are multiple customers with similar names, list them and ask user to confirm
-        #    similar_names = [doc['name'] for doc in result if difflib.SequenceMatcher(None, doc['name'].lower(), name.lower()).ratio() > 0.6]
-        #    if len(similar_names) > 0:
-        #        return f"There are multiple customers with that name, which did you mean? ({', '.join(similar_names)})"
-        #    else:
-        #        return "Customer doesn't exist"
-
-        #exact name search
         result = self.client.get_documents('Customer', filters=[['name', '=', name]])
         if len(result) == 1:
             return True
