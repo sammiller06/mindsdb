@@ -3,11 +3,15 @@ from unittest.mock import patch, mock_open
 import pytest
 from mindsdb.integrations.handlers.langchain_handler.agent_tool_fetcher import AgentToolFetcher
 from mindsdb.integrations.handlers.frappe_handler.frappe_handler import FrappeHandler
+from cryptography.fernet import Fernet
 
+
+fake_key = 'fuphuFuNho5ALV1ryVUthe858u66mium38-9jh2yBKU='
+fake_data = Fernet(fake_key).encrypt(b'fake data')
 
 @pytest.fixture
 def tool_fetcher():
-    return AgentToolFetcher()
+    return AgentToolFetcher(fake_key)
 
 
 @pytest.fixture
@@ -18,7 +22,7 @@ def fake_os_path_exists():
 
 @pytest.fixture
 def fake_open():
-    with patch('builtins.open', mock_open(read_data='data')) as mock_file:
+    with patch('builtins.open', mock_open(read_data=fake_data)) as mock_file:
         yield mock_file
 
 

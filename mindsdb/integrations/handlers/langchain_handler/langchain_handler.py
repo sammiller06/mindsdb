@@ -101,6 +101,8 @@ class LangChainHandler(BaseMLEngine):
         if args['mode'] not in supported_modes:
             raise Exception(f"Invalid operation mode. Please use one of {supported_modes}")
 
+        if not args.get('encryption_key'):
+            args["encryption_key"] = None
         self.model_storage.json_set('args', args)
 
     @staticmethod
@@ -239,8 +241,8 @@ class LangChainHandler(BaseMLEngine):
 
         base_tokens_dir = "agent_tokens"
         username_of_last_message = df["user"].iloc[-1]
-        agent_name = AgentType.CONVERSATIONAL_REACT_DESCRIPTION
-        agent_tool_fetcher = AgentToolFetcher()
+        agent_name = AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION
+        agent_tool_fetcher = AgentToolFetcher(encryption_key=args["encryption_key"])
 
         for handler_name in USER_TOOL_PERMISIONS[username_of_last_message]:
             try:
@@ -253,7 +255,7 @@ class LangChainHandler(BaseMLEngine):
             tools,
             llm,
             memory=memory,
-            agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
+            agent=agent_name,
             max_iterations=pred_args.get('max_iterations', 3),
             verbose=pred_args.get('verbose', args.get('verbose', False)),
             handle_parsing_errors=False,
