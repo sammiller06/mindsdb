@@ -1,6 +1,7 @@
 import json
 import pandas as pd
 import datetime as dt
+from datetime import timedelta
 import difflib
 from typing import Dict
 
@@ -23,6 +24,11 @@ class FrappeHandler(APIHandler):
         domain (str): Frappe domain to send API requests to.
         access_token (str): OAuth token to use for authentication.
     """
+
+    # Declaring class-level constants
+    SALES_QUOTATION = 'Quotation'
+    SALES_INVOICE = 'Sales Invoice'
+    SALES_ORDER = 'Sales Order'
 
     def __init__(self, name: str = None, **kwargs):
         """Registers all API tables and prepares the handler for an API connection.
@@ -51,20 +57,24 @@ class FrappeHandler(APIHandler):
         tools = {
             'get_company': 'have to be used by assistant to get all permitted companies for the user. Input is None',
             'check_company_exists': 'useful to check the company is exist using fuzzy search. Input is company',
-            'create_sales_invoice': 'have to be used by assistant to register a sales invoice. Input is JSON object serialized as a string. Due date have to be passed in format: "yyyy-mm-dd".',
-            'create_sales_order': 'have to be used by assistant to register a sales order. Input is JSON object serialized as a string',
             'register_new_customer': 'have to be used by assistant to register a new customer. Input is JSON object serliazed as a string',
-            'submit_quotation': 'have to be used by assistant to submit a quotation. Input is JSON object serialized as a string',
+            'create_sales_quotation': 'have to be used by assistant to register a sales invoice. Input is JSON object serialized as a string.',
+            'create_sales_invoice': 'have to be used by assistant to register a sales invoice. Input is JSON object serialized as a string.',
+            'create_sales_order': 'have to be used by assistant to register a sales order. Input is JSON object serialized as a string',
+            'submit_sales_quotation': 'have to be used by assistant to submit a quotation. Input is JSON object serialized as a string',
             'submit_sales_invoice': 'have to be used by assistant to submit a sales invoice. Input is JSON object serialized as a string',
             'submit_sales_order': 'have to be used by assistant to submit a sales order. Input is JSON object serialized as a string',
+            'update_sales_quotation': 'have to be used by assistant to update a sales quotation. Input is JSON object serialized as a string',
             'update_sales_invoice': 'have to be used by assistant to update a sales invoice. Input is JSON object serialized as a string',
             'update_sales_order': 'have to be used by assistant to update a sales order. Input is JSON object serialized as a string',
+            'cancel_sales_quotation': 'have to be used by assistant to cancel a sales quotation. Input is JSON object serialized as a string',
             'cancel_sales_invoice': 'have to be used by assistant to cancel a sales invoice. Input is JSON object serialized as a string',
             'cancel_sales_order': 'have to be used by assistant to cancel a sales order. Input is JSON object serialized as a string',
             'register_payment_entry': 'have to be used by assistant to create a payment entry. Input is JSON object serialized as a string',
-            #'check_sales_record': 'useful to check the sales invoice is exist. Input is name',
+            'get_sales_quotation_detail': 'have to be used by asssitant to get the sales quotation details. Input is sales quotation name',
             'get_sales_invoice_detail': 'have to be used by asssitant to get the sales invoice details. Input is sales invoice name',
             'get_sales_order_detail': 'have to be used by asssitant to get the sales order details. Input is sales order name',
+            'get_sales_quotation_pdf': 'have to be used by assistant to get the pdf url for the sales quotation. Input is sales quotation name',
             'get_sales_invoice_pdf': 'have to be used by assistant to get the pdf url for the sales invoice. Input is sales invoice name',
             'get_sales_order_pdf': 'have to be used by assistant to get the pdf url for the sales order. Input is sales order name',
             'check_customer':  'useful to search for existing customers. Input is customer',
@@ -72,11 +82,26 @@ class FrappeHandler(APIHandler):
             'check_item_code':  'have to be used to check the item code. Input is item_code',
             'search_item_by_keyword' : 'have to be used by assistant to find a match or a close match item based on the keyword provided by the user. Input is keyword',
             'create_address': 'have to be used by assistant to create address for customer.Input is JSON object serialized as a string'
+            #'check_sales_record': 'useful to check the sales invoice is exist. Input is name',
             #'get_item_price': 'have to be used by assistant to find the item price. Input is item_code',
         }
         return {
             'tools': tools,
         }
+
+
+    # Cached company data to prevent unnecessary API calls
+    company_cache = {}
+
+    def get_cached_company(self, fields=None):
+        if not fields:
+            fields = ['name']
+
+        cache_key = str(fields)
+        if cache_key not in self.company_cache:
+            self.company_cache[cache_key] = self.client.get_documents('Company', fields=fields)
+
+        return self.company_cache[cache_key]
 
     def _create_sales(self, doctype, data):
         """
@@ -96,41 +121,31 @@ class FrappeHandler(APIHandler):
         """
         if isinstance(data, string_types):
             data = json.loads(data)
-        # Handle Company
-        if not data.get('company'):
-            data['company'] = self.get_company()[0]['name']
-        if not data.get('letter_head'):
-            company_letter_head = self.get_company_defaults(data['company'],['default_letter_head'])
-            if company_letter_head:
-                data['letter_head'] = company_letter_head['default_letter_head']
 
-        # Handle tc_name and terms using the company:
-        terms_and_conditions = self.get_terms_and_conditions_defaults(data['company'])
-        if terms_and_conditions:
-            if not data.get('tc_name'):
-                data['tc_name'] = terms_and_conditions['name']
-            if not data.get('terms'):
-                data['terms'] = terms_and_conditions['terms']
+        # Get company defaults
+        self.handle_company_defaults(data)
 
         # Handle payment terms
         data['payment_terms_template'] = 'Full Payment Terms'
+        print("Payment Terms")
 
-        #Check dates
-        if doctype == 'Sales Invoice':
+        # Check dates
+        if doctype == self.SALES_INVOICE:
             date = dt.datetime.strptime(data['due_date'], '%Y-%m-%d')
             if date < dt.datetime.today():
                 return 'Error: due_date have to be in the future'
-        elif doctype == 'Sales Order':
-            date = dt.datetime.strptime(data['delivery_date'], '%Y-%m-%d')   
+        elif doctype == self.SALES_ORDER:
+            date = dt.datetime.strptime(data['delivery_date'], '%Y-%m-%d')
             if date < dt.datetime.today():
                 return 'Error: delivery date have to be in the future'
-        elif doctype == 'Quotation':
-            date = dt.datetime.strptime(data['transaction_date'], '%Y-%m-%d')   
+        elif doctype == self.SALES_QUOTATION:
+            date = dt.datetime.strptime(data['transaction_date'], '%Y-%m-%d')
             if date < dt.datetime.today():
-                return 'Error: transaction date have to be in the future'
+                return 'Error: quotation date have to be in the future'
+            data['party_name'] = data['customer']
 
         for item in data['items']:
-            # rename column
+            # Rename column
             if 'quantity' in item and 'qty' not in item:
                 item['qty'] = item['quantity']
                 del item['quantity']
@@ -138,7 +153,8 @@ class FrappeHandler(APIHandler):
             item['income_account'] = item_default['income_account']
             item['cost_center'] = item_default['selling_cost_center']
             item['warehouse'] = item_default['warehouse']
-        
+        print("Pass Dates")
+
         try:
             self.connect()
             response = self.client.post_document(doctype, data)
@@ -150,7 +166,7 @@ class FrappeHandler(APIHandler):
         except Exception as e:
             print (e)
             return f"Error: {e}"
-    
+
     def _update_sales(self, doctype, data):
         """
           input is:
@@ -162,8 +178,11 @@ class FrappeHandler(APIHandler):
         """
         if isinstance(data, string_types):
             data = json.loads(data)
+        # Get company defaults
+        self.handle_company_defaults(data)
+
         #check that the due date is not prior to posting date
-        if doctype == 'Sales Invoice':
+        if doctype == self.SALES_INVOICE:
             sales_details = self.get_sales_invoice_detail(data['name'])[0]
             if 'due_date' in data and data['due_date'].strip():
                 due_date = dt.datetime.strptime(data['due_date'], '%Y-%m-%d')
@@ -174,7 +193,7 @@ class FrappeHandler(APIHandler):
                         return 'Error: due_date cannot be before invoice posting date'
                 except ValueError as e:
                     return f'Error: {e}'
-        elif doctype == 'Sales Order':
+        elif doctype == self.SALES_ORDER:
              sales_details = self.get_sales_order_detail(data['name'])[0]
              if 'delivery_date' in data and data['delivery_date'].strip():
                 delivery_date = dt.datetime.strptime(data['delivery_date'], '%Y-%m-%d')
@@ -185,14 +204,21 @@ class FrappeHandler(APIHandler):
                         return 'Error: delivery_date cannot be before order transaction date'
                 except ValueError as e:
                     return f'Error: {e}'
+        elif doctype == self.SALES_QUOTATION:
+             sales_details = self.get_sales_quotation_detail(data['name'])[0]
+             if 'transaction_date' in data and data['transaction__date'].strip():
+                transaction_date = dt.datetime.strptime(data['transaction_date'], '%Y-%m-%d')
+                try:
+                    transaction_date_str = sales_details['transaction_date']
+                    transaction_date = dt.datetime.strptime(transaction_date_str, '%Y-%m-%d')
+                    if transaction_date < dt.datetime.today():
+                        return 'Error: transaction date cannot be in the past'
+                except ValueError as e:
+                    return f'Error: {e}'
 
         # Update discounts
         #if 'additional_discount_percentage' in data:
         #    data['additional_discount_percentage'] = "{:.3f}".format(float(data['additional_discount_percentage']))
-
-        # Update title with customer name
-        if 'customer' in data and data['customer'].strip():
-             data['title'] = data['customer']
 
         # Update items
         sales_items = sales_details['items']
@@ -255,15 +281,25 @@ class FrappeHandler(APIHandler):
             'name': data['name'],
             'items': sales_items
         }
-        if 'customer' in data and data['customer'].strip():
-            payload['customer'] = data['customer']
-            payload['title'] = data['title']
+
+        if doctype == self.SALES_QUOTATION:
+            if 'customer' in data and data['customer'].strip():
+                    payload['party_name'] = data['customer']
+                    payload['customer_name'] = data['customer']
+                    payload['title'] = data['customer']
+        else:
+            if 'customer' in data and data['customer'].strip():
+                    payload['customer'] = data['customer']
+                    payload['title'] = data['title']
+
         if 'due_date' in data and data['due_date'].strip():
             payload['due_date'] = data['due_date']
         if 'additional_discount_percentage' in data:
             payload['additional_discount_percentage'] = data['additional_discount_percentage']
         if 'discount_amount' in data:
             payload['discount_amount'] = data['discount_amount']
+        print("DATA:", data)
+        print("PAYLOAD:", payload)
 
         try:
             self.connect()
@@ -275,7 +311,6 @@ class FrappeHandler(APIHandler):
             return success_msg
         except Exception as e:
             return f"Error: {e}"
-        #return f"Success"
 
     def _submit_sales(self, doctype, data):
         """
@@ -286,6 +321,8 @@ class FrappeHandler(APIHandler):
         """
         if isinstance(data, string_types):
             data = json.loads(data)
+        # Get company defaults
+        self.handle_company_defaults(data)
 
         try:
             self.connect()
@@ -302,7 +339,7 @@ class FrappeHandler(APIHandler):
                     success_msg += f" PDF URL:" + pdf
                 return success_msg
 
-            # if the docstatus is 1 (Unpaid)
+            # if the docstatus is 1 (Unpaid/Overdue)
             elif docstatus == 1:
                 return "Record already submitted"
 
@@ -314,17 +351,17 @@ class FrappeHandler(APIHandler):
                 return f"Unexpected Doc Status: {docstatus}"
         except Exception as e:
             return f"Error: {e}"
-    
+
     def _cancel_sales(self, doctype, data):
         """
             input is:
                 {
                     "name": "ACC-SINV-2023-00070"
                 }
-            """
+        """
         if isinstance(data, string_types):
             data = json.loads(data)
-        
+
         try:
             self.connect()
             # check the docstatus of the invoice
@@ -333,11 +370,11 @@ class FrappeHandler(APIHandler):
 
             # if the docstatus is 0 (Draft)
             if docstatus ==0:
-                return "Unable to cancel invoice that is in Draft"
+                return "Unable to cancel record that is in Draft"
 
-            # if the docstatus is 1 (Unpaid)
+            # if the docstatus is 1 (Unpaid/Overdue)
             elif docstatus == 1:
-                response = self.client.update_document('Sales Invoice', data['name'], data={"docstatus": 2})
+                response = self.client.update_document(doctype, data['name'], data={"docstatus": 2})
                 success_msg = f"{doctype} : {response['name']} has been successfully cancelled."
                 pdf = self.generate_pdf_url(response)
                 if pdf:
@@ -352,64 +389,77 @@ class FrappeHandler(APIHandler):
                 return f"Unexpected Doc Status: {docstatus}"
         except Exception as e:
             return f"Error: {e}"
-    
-    def create_quotation(self, data):
-        return self._create_sales('Quotation', data)
+
+    def create_sales_quotation(self, data):
+        return self._create_sales(doctype=self.SALES_QUOTATION, data=data)
 
     def create_sales_invoice(self, data):
-        return self._create_sales('Sales Invoice', data)
-    
+        return self._create_sales(doctype=self.SALES_INVOICE, data=data)
+
     def create_sales_order(self, data):
-        return self._create_sales('Sales Order', data)
+        return self._create_sales(doctype=self.SALES_ORDER, data=data)
+
+    def update_sales_quotation(self, data):
+        return self._update_sales(doctype=self.SALES_QUOTATION, data=data)
 
     def update_sales_invoice(self, data):
-        return self._update_sales('Sales Invoice', data)
-    
+        return self._update_sales(doctype=self.SALES_INVOICE, data=data)
+
     def update_sales_order(self, data):
-        return self._update_sales('Sales Order', data)
+        return self._update_sales(doctype=self.SALES_ORDER, data=data)
+
+    def submit_sales_quotation(self, data):
+        return self._submit_sales(doctype=self.SALES_QUOTATION, data=data)
 
     def submit_sales_invoice(self, data):
-        return self._submit_sales('Sales Invoice', data)
+        return self._submit_sales(doctype=self.SALES_INVOICE, data=data)
 
     def submit_sales_order(self, data):
-        return self._submit_sales('Sales Order', data)
-    
-    def cancel_sales_invoice(self, data):
-        return self._cancel_sales('Sales Invoice', data)
-    
-    def cancel_sales_order(self, data):
-        return self._cancel_sales('Sales Order', data)
+        return self._submit_sales(doctype=self.SALES_ORDER, data=data)
 
-    def check_sales_record(self, doctype, name, return_full_data=False):
-        self.connect()
-        result = self.client.get_documents(doctype, filters=[['name', '=', name]])
-        if len(result) == 1:
+    def cancel_sales_quotation(self, data):
+        return self._cancel_sales(doctype=self.SALES_QUOTATION, data=data)
+
+    def cancel_sales_invoice(self, data):
+        return self._cancel_sales(doctype=self.SALES_INVOICE, data=data)
+
+    def cancel_sales_order(self, data):
+        return self._cancel_sales(doctype=self.SALES_ORDER, data=data)
+
+    def check_sales_record(self, doctype, name, return_full_data=False, for_pdf=False):
+        result = self._get_sales_details(doctype, name, for_pdf)
+
+        if result:
             return result[0] if return_full_data else True
         else:
             if return_full_data:
-               raise ValueError(f"{doctype} {name} does not exist")
+                raise ValueError(f"{doctype} {name} does not exist")
             else:
-               return f"{doctype} {name} doesn't exist: please enter a valid invoice number"
-    
+                return f"{doctype} {name} doesn't exist: please enter a valid invoice number"
+
     def _get_sales_details(self, doctype, name, for_pdf=False):
         if for_pdf:
             fields = ['name', 'company', 'letter_head', 'language']
         else:
-            fields = ['name', 'customer', 'company', 'currency', 'grand_total', 'status']
+            fields = ['name', 'company', 'currency', 'grand_total', 'status', 'docstatus', 'title']
             item_fields = ['name', 'idx', 'item_name', 'item_code', 'description', 'qty', 'rate', 'base_rate', 'uom', 'conversion_factor', 'amount', 'base_amount']
-            if doctype == 'Sales Invoice':
-                fields.extend(['posting_date', 'due_date', 'outstanding_amount'])
+            if doctype == self.SALES_QUOTATION:
+                fields.extend(['customer_name', 'transaction_date', 'valid_till'])
+                #item_fields.extend(['income_account', 'cost_center'])
+            elif doctype == self.SALES_INVOICE:
+                fields.extend(['customer', 'posting_date', 'due_date', 'outstanding_amount'])
                 item_fields.extend(['income_account', 'cost_center'])
-            elif doctype == 'Sales Order':
-                fields.extend(['transaction_date', 'delivery_date'])
+            elif doctype == self.SALES_ORDER:
+                fields.extend(['customer', 'transaction_date', 'delivery_date'])
                 item_fields.extend(['delivery_date'])
-
+        print("BREAK1")
         try:
             self.connect()
             data = self.client.get_documents(
-                doctype, filters=[['name', '=', name]], 
+                doctype, filters=[['name', '=', name]],
                 fields=fields,
                 limit=1)
+            print("BREAK2")
             if for_pdf:
                 return data[0]
             for i in data:
@@ -419,26 +469,35 @@ class FrappeHandler(APIHandler):
                     fields=item_fields,
                     parent=doctype
                 )
+            print("EVERYTHING:", data)
             return data
         except Exception as e:
-            return f"Unable to get the details {doctype}: {name}. {e}"          
-    
+            return f"Unable to get the details {doctype}: {name}. {e}"
+
+    def get_sales_quotation_detail(self, name):
+        return self._get_sales_details(self.SALES_QUOTATION, name)
+
     def get_sales_invoice_detail(self, name):
-        return self._get_sales_details('Sales Invoice', name)
+        return self._get_sales_details(self.SALES_INVOICE, name)
 
     def get_sales_order_detail(self, name):
-        return self._get_sales_details('Sales Order', name)
-    
-    def get_sales_order_pdf(self, name):
-        data = self._get_sales_details('Sales Order', name, True)
-        data['doctype'] = 'Sales Order'
+        return self._get_sales_details(self.SALES_ORDER, name)
+
+    def get_sales_quotation_pdf(self, name):
+        data = self._get_sales_details(self.SALES_QUOTATION, name, True)
+        data['doctype'] = self.SALES_QUOTATION
         return self.generate_pdf_url(data)
 
     def get_sales_invoice_pdf(self, name):
-        data = self._get_sales_details('Sales Invoice', name, True)
-        data['doctype'] = 'Sales Invoice'
+        data = self._get_sales_details(self.SALES_INVOICE, name, True)
+        data['doctype'] = self.SALES_INVOICE
         return self.generate_pdf_url(data)
-    
+
+    def get_sales_order_pdf(self, name):
+        data = self._get_sales_details(self.SALES_ORDER, name, True)
+        data['doctype'] = self.SALES_ORDER
+        return self.generate_pdf_url(data)
+
     def generate_pdf_url(self, data):
         base_url = self.erp_url
         doctype = data.get('doctype')
@@ -463,7 +522,7 @@ class FrappeHandler(APIHandler):
         )
 
         return pdf_url
-    
+
     def register_payment_entry(self, data):
         """
           input is:
@@ -481,7 +540,7 @@ class FrappeHandler(APIHandler):
         """
         if isinstance(data, string_types):
             data = json.loads(data)
-        
+
         date = dt.datetime.strptime(data['posting_date'], '%Y-%m-%d')
         if date < dt.datetime.today():
             return 'Error: posting date have to be in the future'
@@ -521,7 +580,7 @@ class FrappeHandler(APIHandler):
         except Exception as e:
             return f"Error: {e}"
         return f"Success"
-    
+
     def create_address(self, data):
         if isinstance(data, string_types):
             data = json.loads(data)
@@ -530,7 +589,7 @@ class FrappeHandler(APIHandler):
         missing_keys = [key for key in required_keys if data.get(key) is None]
         if missing_keys:
             return f"Incomplete address information. Missing keys: {', '.join(missing_keys)}"
-    
+
         payload = {
             'address_line1': data.get('address_line1'),
             'address_type': data.get('address_type'),
@@ -547,19 +606,20 @@ class FrappeHandler(APIHandler):
             self.connect()
             self.client.post_document('Address', payload)
         except Exception as e:
-            return f"Unable to create address: {e}"    
+            return f"Unable to create address: {e}"
         return "Address has been successfully created"
 
     def check_item_code(self, item_code):
         self.connect()
-        result = self.client.get_documents('Item', filters=[['item_code', '=', item_code]])
+        fields = ['name']
+        result = self.client.get_documents('Item', filters=[['item_code', '=', item_code]],fields=fields)
         if len(result) == 1:
             return True
         return "Item doesn't exist: please search item by the keyword"
-   
+
     def search_item_by_keyword(self, keyword):
         self.connect()
-        fields = ['name', 'item_code', 'item_name', 'description', 'company', 'stock_uom', 'standard_rate', 'is_stock_item']
+        fields = ['name', 'item_code', 'item_name', 'description', 'stock_uom', 'standard_rate', 'is_stock_item']
         result = []
 
         filters = [
@@ -584,7 +644,7 @@ class FrappeHandler(APIHandler):
         result = self.client.get_documents('Item Price', filters=[['item_code', '=', item_code],['selling', '=', 1]], fields=['name', 'valid_from', 'valid_upto', 'price_list_rate', 'currency', 'price_list'])
         if result:
             return result
-    
+
     def get_item_default(self, item):
         self.connect()
         # Get company defaults
@@ -617,14 +677,27 @@ class FrappeHandler(APIHandler):
     def get_company_defaults(self, company, fields=["*"]):
         result = self.client.get_documents('Company', filters=[['name', '=', company]], fields=fields)
         return result[0] if result else None
-    
+
     def get_company(self, fields=None):
         self.connect()
         if fields == 'None':
             fields = ['name']
         result = self.client.get_documents('Company', fields=fields)
-        return result
-    
+        return result[0] if result else None
+
+    def handle_company_defaults(self, data):
+        if not data.get('company'):
+            data['company'] = self.get_cached_company()[0]['name']
+        if not data.get('letter_head'):
+            company_letter_head = self.get_company_defaults(data['company'], ['default_letter_head'])
+            if company_letter_head:
+                data['letter_head'] = company_letter_head['default_letter_head']
+
+        terms_and_conditions = self.get_terms_and_conditions_defaults(data['company'])
+        if terms_and_conditions:
+            data.setdefault('tc_name', terms_and_conditions['name'])
+            data.setdefault('terms', terms_and_conditions['terms'])
+
     def check_company_exists(self, name):
         self.connect()
         result = self.client.get_documents('Company', filters=[['name', '=', name]])
@@ -638,14 +711,36 @@ class FrappeHandler(APIHandler):
 
     def check_customer(self, name):
         self.connect()
+
         result = self.client.get_documents('Customer', filters=[['name', '=', name]])
         if len(result) == 1:
             return True
         return "Customer doesn't exist"
-    
+
+        # Attempt to get cached company data
+        #company_info = self.get_cached_company(fields=['name'])
+
+        # If cache doesn't exist or is empty, fetch from the API
+        #if not company_info:
+        #    company_info = self.get_company(fields=['name'])
+        #    self.company_cache = company_info
+
+        # Extract company name from the retrieved data
+        #company_name = company_info[0]['name'] if company_info else None
+        #print("COmpany:", company_name)
+
+        #if company_name:
+        #    result = self.client.get_documents('Customer', filters=[['name', '=', name], ['company', '=', company_name]])
+        #else:
+        #    result = self.client.get_documents('Customer', filters=[['name', '=', name]])
+
+        #if len(result) == 1:
+        #    return True
+        #return "Customer doesn't exist"
+
     def search_customer_by_name(self, name):
         self.connect()
-        fields = ['name', 'customer_name', 'customer_type', 'company']
+        fields = ['name', 'customer_name']
         result = []
 
         filters = [
@@ -662,7 +757,7 @@ class FrappeHandler(APIHandler):
             return result
         else:
             return "No customer found with the given name."
-        
+
     def connect(self) -> FrappeClient:
         """Creates a new  API client if needed and sets it as the client to use for requests.
 

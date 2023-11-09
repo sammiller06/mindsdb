@@ -47,9 +47,11 @@ class FrappeClient(object):
             limit (int): At most, how many messages to return.
             filters (List[List]): List of filters in the form [field, operator, value] e.g. ["amount", ">", 50]
         """
+
         params = {
             'fields': json.dumps(["*"])
         }
+
         if limit is not None:
             params['limit_page_length'] = limit
         if filters is not None:
@@ -59,8 +61,8 @@ class FrappeClient(object):
         if parent:
             documents_response = requests.get(
 				f'{self.base_url}/resource/{doctype}?parent={parent}',
-                params=params,
-                headers=self.headers,
+                                params=params,
+                                headers=self.headers,
 				allow_redirects=False)
         else:
             documents_response = requests.get(
@@ -79,12 +81,20 @@ class FrappeClient(object):
                 params=params,
                 headers=self.headers,
                 allow_redirects=False)
+        print("PARAMS:", params)
+        print("STATUS CODE:", documents_response.status_code)
+        print("TEXT:", documents_response.text)
 
         data_content = documents_response.json()['data']
-        print("Data content:", data_content)
 
         if not documents_response.ok:
             documents_response.raise_for_status()
+        print("GET_DOCUMENTS CONTENT:", data_content)
+        #print(f"REQUESTING URL: {documents_response.url}")
+        #print("REDIRECT URL:", redirect_url)
+        #print("RESPONSE STATUS:", documents_response.status_code)
+        #print("RESPONSE CONTENT:", documents_response.content)
+
         return documents_response.json()['data']
 
     def post_document(
