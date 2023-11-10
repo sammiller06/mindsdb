@@ -1,4 +1,4 @@
-CHAT_MODELS = ('gpt-3.5-turbo', 'gpt-3.5-turbo-16k', 'gpt-3.5-turbo-instruct', 'gpt-4', 'gpt-4-32k')
+CHAT_MODELS = ('gpt-3.5-turbo', 'gpt-3.5-turbo-16k', 'gpt-3.5-turbo-instruct', 'gpt-4', 'gpt-4-32k', 'gpt-4-1106-preview')
 COMPLETION_MODELS = ('babbage-002', 'davinci-002')
 FINETUNING_MODELS = ('gpt-3.5-turbo', 'babbage-002', 'davinci-002')
 COMPLETION_LEGACY_BASE_MODELS = ('davinci', 'curie', 'babbage', 'ada')
