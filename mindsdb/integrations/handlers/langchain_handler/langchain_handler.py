@@ -20,7 +20,7 @@ from mindsdb.integrations.handlers.langchain_handler.tools import setup_tools
 from mindsdb.integrations.libs.base import BaseMLEngine
 from mindsdb.integrations.utilities.handler_utils import get_api_key
 from mindsdb.utilities import log
-from mindsdb.integrations.handlers.langchain_handler.permisions import USER_TOOL_PERMISIONS
+from mindsdb.integrations.handlers.langchain_handler.permisions import USER_TOOL_PERMISIONS, DEFAULT_TOOL_PERMISIONS
 from mindsdb.integrations.handlers.langchain_handler.agent_tool_fetcher import AgentToolFetcher
 
 _DEFAULT_MODEL = 'gpt-3.5-turbo'
@@ -243,8 +243,12 @@ class LangChainHandler(BaseMLEngine):
         username_of_last_message = df["user"].iloc[-1]
         agent_name = AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION
         agent_tool_fetcher = AgentToolFetcher(encryption_key=args["encryption_key"])
-
-        for handler_name in USER_TOOL_PERMISIONS[username_of_last_message]:
+        if username_of_last_message not in USER_TOOL_PERMISIONS:
+            available_tools = DEFAULT_TOOL_PERMISIONS
+        else:
+            available_tools = USER_TOOL_PERMISIONS[username_of_last_message]
+            
+        for handler_name in available_tools:
             try:
                 tools_for_agent = agent_tool_fetcher.get_tools_for_agent(handler_name, base_tokens_dir, username_of_last_message)
                 tools += tools_for_agent
