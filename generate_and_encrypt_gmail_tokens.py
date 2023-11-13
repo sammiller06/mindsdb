@@ -18,7 +18,7 @@ credentials = get_gmail_credentials(
 
 if args.key is None:
     key = Fernet.generate_key()
-    print("No key provided. Generated a new encrpytion key: ", key.decode())
+    print("No key provided. Generated a new key: ", key.decode())
 else:
     key = args.key.encode()
 
