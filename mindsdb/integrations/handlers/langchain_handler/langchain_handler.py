@@ -20,7 +20,8 @@ from mindsdb.integrations.handlers.langchain_handler.tools import setup_tools
 from mindsdb.integrations.libs.base import BaseMLEngine
 from mindsdb.integrations.utilities.handler_utils import get_api_key
 from mindsdb.utilities import log
-
+from mindsdb.integrations.handlers.langchain_handler.permisions import USER_TOOL_PERMISIONS
+from mindsdb.integrations.handlers.langchain_handler.agent_tool_fetcher import AgentToolFetcher
 
 _DEFAULT_MODEL = 'gpt-3.5-turbo'
 _DEFAULT_MAX_TOKENS = 2048  # requires more than vanilla OpenAI due to ongoing summarization and 3rd party input
@@ -28,6 +29,7 @@ _DEFAULT_AGENT_MODEL = 'zero-shot-react-description'
 _DEFAULT_AGENT_TOOLS = ['python_repl', 'wikipedia']  # these require no additional arguments
 _ANTHROPIC_CHAT_MODELS = {'claude-2', 'claude-instant-1'}
 _PARSING_ERROR_PREFIX = 'Could not parse LLM output: `'
+
 
 class LangChainHandler(BaseMLEngine):
     """
@@ -83,7 +85,7 @@ class LangChainHandler(BaseMLEngine):
 
         args = args['using']
         args['target'] = target
-        
+
         available_models = {*OPEN_AI_CHAT_MODELS, *_ANTHROPIC_CHAT_MODELS}
         if not args.get('model_name'):
             args['model_name'] = self.default_model
@@ -99,6 +101,8 @@ class LangChainHandler(BaseMLEngine):
         if args['mode'] not in supported_modes:
             raise Exception(f"Invalid operation mode. Please use one of {supported_modes}")
 
+        if not args.get('encryption_key'):
+            args["encryption_key"] = None
         self.model_storage.json_set('args', args)
 
     @staticmethod
@@ -235,7 +239,18 @@ class LangChainHandler(BaseMLEngine):
         # use last message as prompt, remove other questions
         df.iloc[:-1, df.columns.get_loc(args['user_column'])] = ''
 
-        agent_name = AgentType.CONVERSATIONAL_REACT_DESCRIPTION
+        base_tokens_dir = "agent_tokens"
+        username_of_last_message = df["user"].iloc[-1]
+        agent_name = AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION
+        agent_tool_fetcher = AgentToolFetcher(encryption_key=args["encryption_key"])
+
+        for handler_name in USER_TOOL_PERMISIONS[username_of_last_message]:
+            try:
+                tools_for_agent = agent_tool_fetcher.get_tools_for_agent(handler_name, base_tokens_dir, username_of_last_message)
+                tools += tools_for_agent
+            except Exception as e:
+                log.logger.error(f"Failed to get {handler_name} tools: {e}")
+
         agent = initialize_agent(
             tools,
             llm,

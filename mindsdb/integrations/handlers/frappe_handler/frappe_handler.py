@@ -15,6 +15,9 @@ from mindsdb.integrations.libs.response import (
 from mindsdb.utilities import log
 from mindsdb_sql import parse_sql
 from six import string_types
+from langchain.tools import Tool
+
+
 class FrappeHandler(APIHandler):
     """A class for handling connections and interactions with the Frappe API.
 
@@ -851,3 +854,17 @@ class FrappeHandler(APIHandler):
         if method_name == 'update_document':
             return self._update_document (params)
         raise NotImplementedError('Method name {} not supported by Frappe API Handler'.format(method_name))
+
+    def get_agent_tools(self):
+        """
+        Returns a list of tools that can be used by an agent
+        """
+        tool_dict = self.back_office_config()['tools']
+        all_tools = []
+        for tool in tool_dict:
+            all_tools.append(Tool.from_function(
+                func=getattr(self, tool),
+                name=tool,
+                description=tool_dict[tool]
+            ))
+        return all_tools

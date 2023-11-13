@@ -1,6 +1,9 @@
 import json
+from cryptography.fernet import Fernet
 from shutil import copyfile
 from collections import OrderedDict
+from langchain.tools.gmail.utils import build_resource_service, get_gmail_credentials
+from langchain.agents.agent_toolkits import GmailToolkit
 
 import requests
 
@@ -37,8 +40,6 @@ from .utils import AuthException, google_auth_flow, save_creds_to_file
 DEFAULT_SCOPES = ['https://www.googleapis.com/auth/gmail.compose',
                   'https://www.googleapis.com/auth/gmail.readonly',
                   'https://www.googleapis.com/auth/gmail.modify']
-
-
 
 
 class EmailsTable(APITable):
@@ -304,8 +305,8 @@ class GmailHandler(APIHandler):
         self.max_batch_size = 100
         self.service = None
         self.is_connected = False
-
-        self.handler_storage = kwargs['handler_storage']
+        if 'handler_storage' in kwargs:
+            self.handler_storage = kwargs['handler_storage']
 
         emails = EmailsTable(self)
         self.emails = emails
@@ -564,6 +565,27 @@ class GmailHandler(APIHandler):
         df = pd.DataFrame(data)
 
         return df
+
+    def get_agent_tools(self, key, gmail_token_path):
+        """
+         Returns a list of tools that can be used by an agent
+        """
+        SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+        fernet = Fernet(key)
+        temp_token_path = "token.json"
+        with open(gmail_token_path, 'rb') as t:
+            encrypted_token = t.read()
+            decrypted_token = fernet.decrypt(encrypted_token).decode()
+        with open(temp_token_path, 'w') as f:
+            f.write(decrypted_token)
+        credentials = get_gmail_credentials(
+            token_file=temp_token_path,
+            scopes=SCOPES,
+        )
+        os.remove(temp_token_path)
+        api_resource = build_resource_service(credentials=credentials)
+        tools = GmailToolkit(api_resource=api_resource).get_tools()  # Provided by langchain
+        return tools
 
 
 connection_args = OrderedDict(
