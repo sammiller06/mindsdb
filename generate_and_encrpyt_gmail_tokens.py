@@ -33,4 +33,3 @@ with open("token.json", 'rb') as f:
     with open(os.path.join(encrypted_token_save_path, "gmail_token.encrypted"), 'wb') as f:
         f.write(encrypted)
         os.remove("token.json")
-        os.remove("credentials.json")
