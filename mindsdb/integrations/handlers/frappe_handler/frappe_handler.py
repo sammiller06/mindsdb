@@ -4,6 +4,7 @@ import datetime as dt
 from datetime import timedelta
 import difflib
 from typing import Dict
+from cryptography.fernet import Fernet
 
 from mindsdb.integrations.handlers.frappe_handler.frappe_tables import FrappeDocumentsTable
 from mindsdb.integrations.handlers.frappe_handler.frappe_client import FrappeClient
@@ -44,10 +45,8 @@ class FrappeHandler(APIHandler):
         self.is_connected = False
 
         args = kwargs.get('connection_data', {})
-        if not 'access_token' in args:
-            raise ValueError('"access_token" parameter required for authentication')
-        if not 'domain' in args:
-            raise ValueError('"domain" parameter required to connect to your Frappe instance')
+        if not args:
+            return
         self.access_token = args['access_token']
         self.domain = args['domain']
 
@@ -855,10 +854,19 @@ class FrappeHandler(APIHandler):
             return self._update_document (params)
         raise NotImplementedError('Method name {} not supported by Frappe API Handler'.format(method_name))
 
-    def get_agent_tools(self):
+    def get_agent_tools(self, key, token_path):
         """
         Returns a list of tools that can be used by an agent
         """
+        fernet = Fernet(key)
+
+        with open(token_path, 'rb') as f:
+            encrypted_token = f.read()
+        decrypted_token = fernet.decrypt(encrypted_token).decode()
+        domain, access_token = decrypted_token.strip().split("\n")
+        self.access_token = access_token
+        self.domain = domain
+
         tool_dict = self.back_office_config()['tools']
         all_tools = []
         for tool in tool_dict:

@@ -16,7 +16,7 @@ class AgentToolFetcher:
         self.logger = logging.getLogger(__name__)
         self.handler_mapping = {
             "gmail": (GmailHandler, "gmail_token.encrypted"),
-            "frappe": (FrappeHandler, "frappe_token.txt", "frappe_domain.txt")
+            "frappe": (FrappeHandler, "frappe_token.encrypted")
         }
 
     def get_token_path(self, base_dir, username, token_file):
@@ -45,18 +45,10 @@ class AgentToolFetcher:
         """
         Returns a list of tools that can be used by an agent
         """
-        handler_class, *token_files = self.handler_mapping.get(agent_name, (None,))
-        if not handler_class:
+        if agent_name not in self.handler_mapping:
             self.logger.error(f"Unknown agent name {agent_name}")
             return []
-        try:
-            if agent_name == "gmail":
-                gmail_token_path = self.get_token_path(base_tokens_dir, username_of_last_message, token_files[0])
-                handler = GmailHandler()
-                return handler.get_agent_tools(self.encryption_key, gmail_token_path)
-            elif agent_name == "frappe":
-                handler = self.get_frappe_handler(base_tokens_dir, username_of_last_message)
-                return handler.get_agent_tools()
-        except Exception as e:
-            self.logger.error(f"Failed to get {agent_name} tools: {e}")
-            return []
+        handler_class, token_filename = self.handler_mapping.get(agent_name)
+        token_path = self.get_token_path(base_tokens_dir, username_of_last_message, token_filename)
+        handler = handler_class()
+        return handler.get_agent_tools(self.encryption_key, token_path)
