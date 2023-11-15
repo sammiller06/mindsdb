@@ -32,22 +32,13 @@ class AgentToolFetcher:
         Returns a FrappeHandler instance for a given user
         """
         encrypted_token_path = self.get_token_path(base_tokens_dir, username, "frappe_token.encrypted")
-        temp_token_path = os.path.join(base_tokens_dir, username, "frappe_token.txt")
         fernet = Fernet(self.encryption_key)
 
-        with open(encrypted_token_path, 'rb') as t:
-            encrypted_token = t.read()
-            decrypted_token = fernet.decrypt(encrypted_token).decode()
-        with open(temp_token_path, 'w') as f:
-            f.write(decrypted_token)
-        access_token = open(temp_token_path, "r").read().strip()
-        try:
-            os.remove(temp_token_path)
-        except FileNotFoundError:
-            pass  # makes mock tests run
+        with open(encrypted_token_path, 'rb') as f:
+            encrypted_token = f.read()
+        decrypted_token = fernet.decrypt(encrypted_token).decode()
+        domain, access_token = decrypted_token.strip().split("\n")
 
-        frappe_domain_path = self.get_token_path(base_tokens_dir, username, "frappe_domain.txt")
-        domain = open(frappe_domain_path, "r").read().strip()
         return FrappeHandler(connection_data={ "access_token": access_token, "domain": domain})
 
     def get_tools_for_agent(self, agent_name, base_tokens_dir, username_of_last_message):

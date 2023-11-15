@@ -7,7 +7,7 @@ from cryptography.fernet import Fernet
 
 
 fake_key = "fuphuFuNho5ALV1ryVUthe858u66mium38-9jh2yBKU="
-fake_data = Fernet(fake_key).encrypt(b"fake data")
+fake_data = Fernet(fake_key).encrypt(b"fake domain\nfake token")
 
 
 @pytest.fixture
