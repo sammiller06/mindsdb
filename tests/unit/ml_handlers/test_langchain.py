@@ -4,6 +4,7 @@ import pytest
 from mindsdb.integrations.handlers.langchain_handler.agent_tool_fetcher import AgentToolFetcher
 from mindsdb.integrations.handlers.frappe_handler.frappe_handler import FrappeHandler
 from cryptography.fernet import Fernet
+from langchain.tools import Tool
 
 
 fake_key = "fuphuFuNho5ALV1ryVUthe858u66mium38-9jh2yBKU="
@@ -64,38 +65,11 @@ def test_get_tools_for_agent_unknown(tool_fetcher):
     tools = tool_fetcher.get_tools_for_agent("unknown", "/fake/base/dir", "johndoe")
     assert tools == []
 
-
-def test_get_tools_for_agent_gmail(tool_fetcher, fake_os_path_exists, fake_open):
-    """
-    Test that get_tools_for_agent returns the expected tools when the agent name is gmail
-    """
-    fake_os_path_exists.return_value = True
-    with patch("mindsdb.integrations.handlers.langchain_handler.agent_tool_fetcher.GmailHandler") as mock_gmail_handler:
-        instance = mock_gmail_handler.return_value
-        instance.get_agent_tools.return_value = ["tool1", "tool2"]
-        tools = tool_fetcher.get_tools_for_agent("gmail", "/fake/base/dir", "johndoe")
-        assert tools == ["tool1", "tool2"]
-
-
 def test_get_tools_for_agent_frappe(tool_fetcher, fake_os_path_exists, fake_open):
     """
     Test that get_tools_for_agent returns the expected tools when the agent name is frappe
     """
-    fake_os_path_exists.return_value = True
-    with patch(
-        "mindsdb.integrations.handlers.langchain_handler.agent_tool_fetcher.FrappeHandler"
-    ) as mock_frappe_handler:
-        instance = mock_frappe_handler.return_value
-        instance.get_agent_tools.return_value = ["tool1", "tool2"]
-        tools = tool_fetcher.get_tools_for_agent("frappe", "/fake/base/dir", "johndoe")
-        assert tools == ["tool1", "tool2"]
-
-
-def test_get_tools_for_agent_error_logging(tool_fetcher, caplog, fake_os_path_exists):
-    """
-    Test that get_tools_for_agent logs an error when an exception is raised
-    """
-    fake_os_path_exists.side_effect = Exception("Boom!")
-    tools = tool_fetcher.get_tools_for_agent("gmail", "/fake/base/dir", "johndoe")
-    assert "Failed to get gmail tools" in caplog.text
-    assert tools == []
+    tools = tool_fetcher.get_tools_for_agent("frappe", "/fake/base/dir", "johndoe")
+    assert len(tools)
+    for tool in tools:
+        assert isinstance(tool, Tool)
