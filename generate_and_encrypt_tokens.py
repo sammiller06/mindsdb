@@ -30,7 +30,7 @@ if args.unencrypted_gmail_credentials_path is not None:
         data = f.read()
         fernet = Fernet(key)
         encrypted = fernet.encrypt(data)
-        if not os.path.exists(encrypted_token_save_path):   
+        if not os.path.exists(encrypted_token_save_path):
             os.makedirs(encrypted_token_save_path)
         with open(os.path.join(encrypted_token_save_path, "gmail_token.encrypted"), 'wb') as f:
             f.write(encrypted)

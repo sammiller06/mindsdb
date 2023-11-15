@@ -65,6 +65,7 @@ def test_get_tools_for_agent_unknown(tool_fetcher):
     tools = tool_fetcher.get_tools_for_agent("unknown", "/fake/base/dir", "johndoe")
     assert tools == []
 
+
 def test_get_tools_for_agent_frappe(tool_fetcher, fake_os_path_exists, fake_open):
     """
     Test that get_tools_for_agent returns the expected tools when the agent name is frappe
