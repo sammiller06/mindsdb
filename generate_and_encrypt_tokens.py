@@ -34,6 +34,7 @@ if args.unencrypted_gmail_credentials_path is not None:
             os.makedirs(encrypted_token_save_path)
         with open(os.path.join(encrypted_token_save_path, "gmail_token.encrypted"), 'wb') as f:
             f.write(encrypted)
+            print("Encrypted token saved to ", os.path.join(encrypted_token_save_path, "gmail_token.encrypted"))
             os.remove("token.json")
 elif args.unencrypted_frappe_credentials_path is not None:
     with open(args.unencrypted_frappe_credentials_path, 'rb') as f:
@@ -43,3 +44,4 @@ elif args.unencrypted_frappe_credentials_path is not None:
     encrypted_token_save_path = os.path.join(args.encrypted_token_save_path, args.rocketchat_username)
     with open(os.path.join(encrypted_token_save_path, "frappe_token.encrypted"), 'wb') as f:
         f.write(encrypted)
+        print("Encrypted token saved to ", os.path.join(encrypted_token_save_path, "frappe_token.encrypted"))
