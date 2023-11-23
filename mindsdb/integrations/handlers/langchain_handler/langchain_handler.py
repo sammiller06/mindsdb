@@ -241,7 +241,7 @@ class LangChainHandler(BaseMLEngine):
 
         base_tokens_dir = "agent_tokens"
         username_of_last_message = df["user"].iloc[-1]
-        agent_name = AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION
+        agent_name = AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION
         agent_tool_fetcher = AgentToolFetcher(encryption_key=args["encryption_key"])
         if username_of_last_message not in USER_TOOL_PERMISIONS:
             available_tools = DEFAULT_TOOL_PERMISIONS
