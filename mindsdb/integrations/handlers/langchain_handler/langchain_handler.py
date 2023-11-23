@@ -216,7 +216,7 @@ class LangChainHandler(BaseMLEngine):
 
         memory = ConversationSummaryBufferMemory(llm=llm,
                                                  max_token_limit=max_tokens,
-                                                 memory_key="chat_history")
+                                                 memory_key="chat_history", return_messages=True)
 
         # fill memory
 
@@ -306,7 +306,7 @@ class LangChainHandler(BaseMLEngine):
                             self.write_privileges)
 
         # langchain agent setup
-        memory = ConversationSummaryBufferMemory(llm=llm, max_token_limit=max_tokens)
+        memory = ConversationSummaryBufferMemory(llm=llm, max_token_limit=max_tokens, return_messages=True)
         agent_name = pred_args.get('agent_name', args.get('agent_name', self.default_agent_model))
         agent = initialize_agent(
             tools,
