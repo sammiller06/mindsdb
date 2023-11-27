@@ -80,7 +80,7 @@ class FrappeHandler(APIHandler):
             'get_sales_quotation_pdf': 'have to be used by assistant to get the pdf url for the sales quotation. Input is sales quotation name',
             'get_sales_invoice_pdf': 'have to be used by assistant to get the pdf url for the sales invoice. Input is sales invoice name',
             'get_sales_order_pdf': 'have to be used by assistant to get the pdf url for the sales order. Input is sales order name',
-            'check_customer':  'useful to search for existing customers. Input is customer',
+            'check_customer_exists': 'useful to check the company exists using fuzzy search. Input is customer',
             'search_customer_by_name': 'have to be used by assistant to find customer based on provided name. Input it customer name',
             'check_item_code':  'have to be used to check the item code. Input is item_code',
             'search_item_by_keyword' : 'have to be used by assistant to find a match or a close match item based on the keyword provided by the user. Input is keyword',
@@ -97,6 +97,7 @@ class FrappeHandler(APIHandler):
     company_cache = {}
 
     def get_cached_company(self, fields=None):
+        self.connect()
         if not fields:
             fields = ['name']
 
@@ -162,6 +163,7 @@ class FrappeHandler(APIHandler):
             self.connect()
             response = self.client.post_document(doctype, data)
             success_msg = f"{doctype} : {response['name']} has been successfully created."
+            print("generate pdf")
             pdf = self.generate_pdf_url(response)
             if pdf:
                 success_msg += f" PDF URL:" + pdf
@@ -502,7 +504,8 @@ class FrappeHandler(APIHandler):
         return self.generate_pdf_url(data)
 
     def generate_pdf_url(self, data):
-        base_url = self.erp_url
+        # list all attributes
+        base_url = "https://cloude8-v13beta-demo.cloude8.com"
         doctype = data.get('doctype')
         name = data.get('name')
         letter_head = data.get('letter_head')
@@ -706,13 +709,13 @@ class FrappeHandler(APIHandler):
         result = self.client.get_documents('Company', filters=[['name', '=', name]])
         if len(result) == 1:
             return True
-        return "Company doesn't exist: please list all available company for user to choose"
+        return "Company doesn't exist: please use a different name"
 
     def get_terms_and_conditions_defaults(self, company, fields=["*"]):
         result = self.client.get_documents('Terms and Conditions', filters=[['company', '=', company]], fields=fields)
         return result[0] if result else None
 
-    def check_customer(self, name):
+    def check_customer_exists(self, name):
         self.connect()
 
         result = self.client.get_documents('Customer', filters=[['name', '=', name]])
