@@ -60,20 +60,20 @@ class FrappeHandler(APIHandler):
         tools = {
             'get_company': 'have to be used by assistant to get all permitted companies for the user. Input is None',
             'check_company_exists': 'useful to check the company is exist using fuzzy search. Input is company',
-            'register_new_customer': 'have to be used by assistant to register a new customer. Input is JSON object serliazed as a string',
-            'create_sales_quotation': 'have to be used by assistant to register a sales invoice. Input is JSON object serialized as a string.',
-            'create_sales_invoice': 'have to be used by assistant to register a sales invoice. Input is JSON object serialized as a string.',
-            'create_sales_order': 'have to be used by assistant to register a sales order. Input is JSON object serialized as a string',
-            'submit_sales_quotation': 'have to be used by assistant to submit a quotation. Input is JSON object serialized as a string',
-            'submit_sales_invoice': 'have to be used by assistant to submit a sales invoice. Input is JSON object serialized as a string',
-            'submit_sales_order': 'have to be used by assistant to submit a sales order. Input is JSON object serialized as a string',
-            'update_sales_quotation': 'have to be used by assistant to update a sales quotation. Input is JSON object serialized as a string',
-            'update_sales_invoice': 'have to be used by assistant to update a sales invoice. Input is JSON object serialized as a string',
-            'update_sales_order': 'have to be used by assistant to update a sales order. Input is JSON object serialized as a string',
-            'cancel_sales_quotation': 'have to be used by assistant to cancel a sales quotation. Input is JSON object serialized as a string',
-            'cancel_sales_invoice': 'have to be used by assistant to cancel a sales invoice. Input is JSON object serialized as a string',
-            'cancel_sales_order': 'have to be used by assistant to cancel a sales order. Input is JSON object serialized as a string',
-            'register_payment_entry': 'have to be used by assistant to create a payment entry. Input is JSON object serialized as a string',
+            'register_new_customer': 'have to be used by assistant to register a new customer. Input is JSON object serialized as a string.',
+            'create_sales_quotation': 'have to be used by assistant to register a sales invoice. Input is JSON object serialized as a string',
+            'create_sales_invoice': 'have to be used by assistant to register a sales invoice. Input is JSON object serialized as a string',
+            'create_sales_order': 'have to be used by assistant to register a sales order. Input is JSON object serialized as a string.',
+            'submit_sales_quotation': 'have to be used by assistant to submit a quotation. Input is JSON object serialized as a string.',
+            'submit_sales_invoice': 'have to be used by assistant to submit a sales invoice. Input is JSON object serialized as a string.',
+            'submit_sales_order': 'have to be used by assistant to submit a sales order. Input is JSON object serialized as a string.',
+            'update_sales_quotation': 'have to be used by assistant to update a sales quotation. Input is JSON object serialized as a string.',
+            'update_sales_invoice': 'have to be used by assistant to update a sales invoice. Input is JSON object serialized as a string.',
+            'update_sales_order': 'have to be used by assistant to update a sales order. Input is JSON object serialized as a string.',
+            'cancel_sales_quotation': 'have to be used by assistant to cancel a sales quotation. Input is JSON object serialized as a string.',
+            'cancel_sales_invoice': 'have to be used by assistant to cancel a sales invoice. Input is JSON object serialized as a string.',
+            'cancel_sales_order': 'have to be used by assistant to cancel a sales order. Input is JSON object serialized as a string.',
+            'register_payment_entry': 'have to be used by assistant to create a payment entry. Input is JSON object serialized as a string.',
             'get_sales_quotation_detail': 'have to be used by asssitant to get the sales quotation details. Input is sales quotation name',
             'get_sales_invoice_detail': 'have to be used by asssitant to get the sales invoice details. Input is sales invoice name',
             'get_sales_order_detail': 'have to be used by asssitant to get the sales order details. Input is sales order name',
@@ -84,7 +84,7 @@ class FrappeHandler(APIHandler):
             'search_customer_by_name': 'have to be used by assistant to find customer based on provided name. Input it customer name',
             'check_item_code':  'have to be used to check the item code. Input is item_code',
             'search_item_by_keyword' : 'have to be used by assistant to find a match or a close match item based on the keyword provided by the user. Input is keyword',
-            'create_address': 'have to be used by assistant to create address for customer.Input is JSON object serialized as a string'
+            'create_address': 'have to be used by assistant to create address for customer.Input is JSON object serialized as a string.'
             #'check_sales_record': 'useful to check the sales invoice is exist. Input is name',
             #'get_item_price': 'have to be used by assistant to find the item price. Input is item_code',
         }
@@ -574,7 +574,10 @@ class FrappeHandler(APIHandler):
         """
         input is:
            {
-             "name": "John Doe"
+             "customer_name": "John Doe",
+             "customer_type": "Individual",
+             "customer_group": "Individual",
+             "territory": "All Territories",
            }
         """
         if isinstance(data, string_types):

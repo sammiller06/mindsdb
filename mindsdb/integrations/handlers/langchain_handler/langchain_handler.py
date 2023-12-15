@@ -28,7 +28,7 @@ _DEFAULT_MAX_TOKENS = 2048  # requires more than vanilla OpenAI due to ongoing s
 _DEFAULT_AGENT_MODEL = 'zero-shot-react-description'
 _DEFAULT_AGENT_TOOLS = ['python_repl', 'wikipedia']  # these require no additional arguments
 _ANTHROPIC_CHAT_MODELS = {'claude-2', 'claude-instant-1'}
-_PARSING_ERROR_PREFIX = 'Could not parse LLM output: `'
+_PARSING_ERROR_PREFIXS = ['Could not parse LLM output: `', 'An output parsing error occurred. In order to pass this error back to the agent and have it try again, pass `handle_parsing_errors=True` to the AgentExecutor. This is the error: Could not parse LLM output: `']
 
 logger = log.getLogger(__name__)
 
@@ -243,7 +243,7 @@ class LangChainHandler(BaseMLEngine):
 
         base_tokens_dir = "agent_tokens"
         username_of_last_message = df["user"].iloc[-1]
-        agent_name = AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION
+        agent_name = AgentType.CONVERSATIONAL_REACT_DESCRIPTION
         agent_tool_fetcher = AgentToolFetcher(encryption_key=args["encryption_key"])
         if username_of_last_message not in USER_TOOL_PERMISIONS:
             available_tools = DEFAULT_TOOL_PERMISIONS
@@ -378,8 +378,8 @@ class LangChainHandler(BaseMLEngine):
                 except ValueError as e:
                     # Handle parsing errors ourselves instead of using handle_parsing_errors=True in initialize_agent.
                     response = str(e)
-                    if not response.startswith(_PARSING_ERROR_PREFIX):
-                        completions.append(f'agent failed with error:\n{str(e)}...')
+                    if not any(response.startswith(prefix) for prefix in _PARSING_ERROR_PREFIXS):
+                        completions.append(f'agent failed with error:\n{str(e)}...')                        
                     else:
                         # By far the most common error is a Langchain parsing error. Some OpenAI models
                         # always output a response formatted correctly. Anthropic, and others, sometimes just output
@@ -387,7 +387,12 @@ class LangChainHandler(BaseMLEngine):
                         # As a somewhat dirty workaround, we accept the output formatted incorrectly and use it as a response.
                         #
                         # Ideally, in the future, we would write a parser that is more robust and flexible than the one Langchain uses.
-                        response = response.lstrip(_PARSING_ERROR_PREFIX).rstrip('`')
+                        for prefix in _PARSING_ERROR_PREFIXS:
+                            if response.startswith(prefix):
+                                # remove prefix from response
+                                response = response[len(prefix):].rstrip('`')
+                                break
+                        # strip the appropriate parsing error prefix
                         logger.info(f"Agent failure, salvaging response...")
                         completions.append(response)
                 except Exception as e:
