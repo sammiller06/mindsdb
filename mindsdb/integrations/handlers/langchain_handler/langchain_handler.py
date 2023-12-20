@@ -262,10 +262,10 @@ class LangChainHandler(BaseMLEngine):
             llm,
             memory=memory,
             agent=agent_name,
-            max_iterations=pred_args.get('max_iterations', 30),
+            max_iterations=pred_args.get('max_iterations', 60),
             verbose=pred_args.get('verbose', args.get('verbose', False)),
             handle_parsing_errors=False,
-            max_execution_time=pred_args.get('max_execution_time', 30)
+            max_execution_time=pred_args.get('max_execution_time', 60)
         )
 
         # setup model description
