@@ -1,4 +1,5 @@
 import json
+from cryptography.fernet import Fernet
 from shutil import copyfile
 from collections import OrderedDict
 from langchain.tools.gmail.utils import build_resource_service, get_gmail_credentials
@@ -568,15 +569,23 @@ class GmailHandler(APIHandler):
 
         return df
 
-    def get_agent_tools(self, gmail_token_path):
+    def get_agent_tools(self, key, gmail_token_path):
         """
          Returns a list of tools that can be used by an agent
         """
         SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+        fernet = Fernet(key)
+        temp_token_path = "token.json"
+        with open(gmail_token_path, 'rb') as t:
+            encrypted_token = t.read()
+            decrypted_token = fernet.decrypt(encrypted_token).decode()
+        with open(temp_token_path, 'w') as f:
+            f.write(decrypted_token)
         credentials = get_gmail_credentials(
-            token_file=gmail_token_path,
+            token_file=temp_token_path,
             scopes=SCOPES,
         )
+        os.remove(temp_token_path)
         api_resource = build_resource_service(credentials=credentials)
         tools = GmailToolkit(api_resource=api_resource).get_tools()  # Provided by langchain
         return tools

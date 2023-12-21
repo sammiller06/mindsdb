@@ -20,7 +20,7 @@ from mindsdb.integrations.handlers.langchain_handler.tools import setup_tools
 from mindsdb.integrations.libs.base import BaseMLEngine
 from mindsdb.integrations.utilities.handler_utils import get_api_key
 from mindsdb.utilities import log
-from mindsdb.integrations.handlers.langchain_handler.permisions import USER_TOOL_PERMISIONS
+from mindsdb.integrations.handlers.langchain_handler.permisions import USER_TOOL_PERMISIONS, DEFAULT_TOOL_PERMISIONS
 from mindsdb.integrations.handlers.langchain_handler.agent_tool_fetcher import AgentToolFetcher
 
 _DEFAULT_MODEL = 'gpt-3.5-turbo'
@@ -28,7 +28,7 @@ _DEFAULT_MAX_TOKENS = 2048  # requires more than vanilla OpenAI due to ongoing s
 _DEFAULT_AGENT_MODEL = 'zero-shot-react-description'
 _DEFAULT_AGENT_TOOLS = ['python_repl', 'wikipedia']  # these require no additional arguments
 _ANTHROPIC_CHAT_MODELS = {'claude-2', 'claude-instant-1'}
-_PARSING_ERROR_PREFIX = 'Could not parse LLM output: `'
+_PARSING_ERROR_PREFIXS = ['Could not parse LLM output: `', 'An output parsing error occurred. In order to pass this error back to the agent and have it try again, pass `handle_parsing_errors=True` to the AgentExecutor. This is the error: Could not parse LLM output: `']
 
 logger = log.getLogger(__name__)
 
@@ -103,6 +103,8 @@ class LangChainHandler(BaseMLEngine):
         if args['mode'] not in supported_modes:
             raise Exception(f"Invalid operation mode. Please use one of {supported_modes}")
 
+        if not args.get('encryption_key'):
+            args["encryption_key"] = None
         self.model_storage.json_set('args', args)
 
     @staticmethod
@@ -214,7 +216,7 @@ class LangChainHandler(BaseMLEngine):
 
         memory = ConversationSummaryBufferMemory(llm=llm,
                                                  max_token_limit=max_tokens,
-                                                 memory_key="chat_history")
+                                                 memory_key="chat_history", return_messages=True)
 
         # fill memory
 
@@ -242,9 +244,13 @@ class LangChainHandler(BaseMLEngine):
         base_tokens_dir = "agent_tokens"
         username_of_last_message = df["user"].iloc[-1]
         agent_name = AgentType.CONVERSATIONAL_REACT_DESCRIPTION
-        agent_tool_fetcher = AgentToolFetcher()
-
-        for handler_name in USER_TOOL_PERMISIONS[username_of_last_message]:
+        agent_tool_fetcher = AgentToolFetcher(encryption_key=args["encryption_key"])
+        if username_of_last_message not in USER_TOOL_PERMISIONS:
+            available_tools = DEFAULT_TOOL_PERMISIONS
+        else:
+            available_tools = USER_TOOL_PERMISIONS[username_of_last_message]
+            
+        for handler_name in available_tools:
             try:
                 tools_for_agent = agent_tool_fetcher.get_tools_for_agent(handler_name, base_tokens_dir, username_of_last_message)
                 tools += tools_for_agent
@@ -255,10 +261,11 @@ class LangChainHandler(BaseMLEngine):
             tools,
             llm,
             memory=memory,
-            agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
-            max_iterations=pred_args.get('max_iterations', 3),
+            agent=agent_name,
+            max_iterations=pred_args.get('max_iterations', 60),
             verbose=pred_args.get('verbose', args.get('verbose', False)),
             handle_parsing_errors=False,
+            max_execution_time=pred_args.get('max_execution_time', 60)
         )
 
         # setup model description
@@ -300,16 +307,17 @@ class LangChainHandler(BaseMLEngine):
                             self.write_privileges)
 
         # langchain agent setup
-        memory = ConversationSummaryBufferMemory(llm=llm, max_token_limit=max_tokens)
+        memory = ConversationSummaryBufferMemory(llm=llm, max_token_limit=max_tokens, return_messages=True)
         agent_name = pred_args.get('agent_name', args.get('agent_name', self.default_agent_model))
         agent = initialize_agent(
             tools,
             llm,
             memory=memory,
             agent=agent_name,
-            max_iterations=pred_args.get('max_iterations', 3),
+            max_iterations=pred_args.get('max_iterations', 30),
             verbose=pred_args.get('verbose', args.get('verbose', False)),
             handle_parsing_errors=False,
+            max_execution_time=pred_args.get('max_execution_time', 30),
         )
 
         # setup model description
@@ -370,8 +378,8 @@ class LangChainHandler(BaseMLEngine):
                 except ValueError as e:
                     # Handle parsing errors ourselves instead of using handle_parsing_errors=True in initialize_agent.
                     response = str(e)
-                    if not response.startswith(_PARSING_ERROR_PREFIX):
-                        completions.append(f'agent failed with error:\n{str(e)}...')
+                    if not any(response.startswith(prefix) for prefix in _PARSING_ERROR_PREFIXS):
+                        completions.append(agent.run(f"The following error occurred. Tell the non-technical user than an error occoured, and explain succinctly why it happened:\n{str(e)})"))
                     else:
                         # By far the most common error is a Langchain parsing error. Some OpenAI models
                         # always output a response formatted correctly. Anthropic, and others, sometimes just output
@@ -379,11 +387,16 @@ class LangChainHandler(BaseMLEngine):
                         # As a somewhat dirty workaround, we accept the output formatted incorrectly and use it as a response.
                         #
                         # Ideally, in the future, we would write a parser that is more robust and flexible than the one Langchain uses.
-                        response = response.lstrip(_PARSING_ERROR_PREFIX).rstrip('`')
+                        for prefix in _PARSING_ERROR_PREFIXS:
+                            if response.startswith(prefix):
+                                # remove prefix from response
+                                response = response[len(prefix):].rstrip('`')
+                                break
+                        # strip the appropriate parsing error prefix
                         logger.info(f"Agent failure, salvaging response...")
                         completions.append(response)
                 except Exception as e:
-                    completions.append(f'agent failed with error:\n{str(e)}...')
+                        completions.append(agent.run(f"The following error occurred. Tell the non-technical user than an error occoured, and explain succinctly why it happened:\n{str(e)})"))
             return [c for c in completions]
 
         completion = _completion(agent, prompts)
