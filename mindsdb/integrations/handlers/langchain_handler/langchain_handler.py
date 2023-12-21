@@ -379,7 +379,7 @@ class LangChainHandler(BaseMLEngine):
                     # Handle parsing errors ourselves instead of using handle_parsing_errors=True in initialize_agent.
                     response = str(e)
                     if not any(response.startswith(prefix) for prefix in _PARSING_ERROR_PREFIXS):
-                        completions.append(f'agent failed with error:\n{str(e)}...')                        
+                        completions.append(agent.run(f"The following error occurred. Tell the non-technical user than an error occoured, and explain succinctly why it happened:\n{str(e)})"))
                     else:
                         # By far the most common error is a Langchain parsing error. Some OpenAI models
                         # always output a response formatted correctly. Anthropic, and others, sometimes just output
@@ -396,7 +396,7 @@ class LangChainHandler(BaseMLEngine):
                         logger.info(f"Agent failure, salvaging response...")
                         completions.append(response)
                 except Exception as e:
-                    completions.append(f'agent failed with error:\n{str(e)}...')
+                        completions.append(agent.run(f"The following error occurred. Tell the non-technical user than an error occoured, and explain succinctly why it happened:\n{str(e)})"))
             return [c for c in completions]
 
         completion = _completion(agent, prompts)
